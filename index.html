@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-50">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Real Estate AI Lead Qualification System - Modern Dashboard for qualifying property buyers using automated intelligence scoring.">
+  <title>Real Estate AI Lead Qualification Dashboard</title>
+  
+  <!-- Tailwind CSS v4 Play CDN -->
+  <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+  
+  <!-- Custom Typography and Themes -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="h-full flex text-slate-800 antialiased font-sans">
+
+  <!-- ========================================== -->
+  <!-- 1. SIDEBAR (Left Column)                   -->
+  <!-- ========================================== -->
+  <aside class="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0 glass-sidebar z-30">
+    <!-- Brand / Logo Area -->
+    <div class="flex items-center justify-between h-16 px-6 border-b border-slate-800">
+      <div class="flex items-center gap-3">
+        <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white font-bold shadow-md shadow-blue-500/20">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+          </svg>
+        </div>
+        <div>
+          <span class="text-sm font-extrabold tracking-wide text-white uppercase font-display">Aegis</span>
+          <span class="text-xs text-blue-400 font-medium block -mt-1">Real Estate AI</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar Navigation -->
+    <nav class="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
+      <a href="#" class="sidebar-nav-active flex items-center px-4 py-3 text-sm font-medium rounded-lg text-white transition-all group">
+        <svg class="w-5 h-5 mr-3 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2v-4zM14 16a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2v-4z"/>
+        </svg>
+        Dashboard
+      </a>
+      <a href="#" class="flex items-center px-4 py-3 text-sm font-medium text-slate-400 rounded-lg hover:text-white hover:bg-slate-800 transition-all group">
+        <svg class="w-5 h-5 mr-3 text-slate-500 group-hover:text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
+        </svg>
+        Leads Inbox
+        <span class="ml-auto inline-block py-0.5 px-2 text-xs font-semibold rounded-full bg-blue-600/35 text-blue-300 border border-blue-500/20 pulse-indicator">Live</span>
+      </a>
+      <a href="#" class="flex items-center px-4 py-3 text-sm font-medium text-slate-400 rounded-lg hover:text-white hover:bg-slate-800 transition-all group">
+        <svg class="w-5 h-5 mr-3 text-slate-500 group-hover:text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+        AI Qualification Rules
+      </a>
+      <a href="#" class="flex items-center px-4 py-3 text-sm font-medium text-slate-400 rounded-lg hover:text-white hover:bg-slate-800 transition-all group">
+        <svg class="w-5 h-5 mr-3 text-slate-500 group-hover:text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2"/>
+        </svg>
+        Performance Metrics
+      </a>
+      <a href="#" class="flex items-center px-4 py-3 text-sm font-medium text-slate-400 rounded-lg hover:text-white hover:bg-slate-800 transition-all group">
+        <svg class="w-5 h-5 mr-3 text-slate-500 group-hover:text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+        </svg>
+        Settings
+      </a>
+    </nav>
+
+    <!-- User Profile Footer Area -->
+    <div class="p-4 border-t border-slate-800">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-full bg-blue-600/25 border border-blue-500/25 flex items-center justify-center text-blue-400 font-bold">
+          PR
+        </div>
+        <div class="flex-1 min-w-0">
+          <span class="text-sm font-semibold text-white block truncate">Pranav Developer</span>
+          <span class="text-xs text-slate-500 block truncate">admin@realestate-ai.com</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ========================================== -->
+  <!-- 2. MAIN CONTAINER & TOP NAVBAR             -->
+  <!-- ========================================== -->
+  <div class="flex flex-col flex-1 lg:pl-64 h-full overflow-hidden">
+    
+    <!-- Top Header / Navbar -->
+    <header class="glass-navbar h-16 flex items-center justify-between px-6 sticky top-0 z-20">
+      
+      <!-- Left: Sidebar trigger for mobile, Title on Desktop -->
+      <div class="flex items-center gap-4">
+        <!-- Mobile Sidebar Toggle button -->
+        <button class="lg:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-all" aria-label="Toggle Navigation">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+          </svg>
+        </button>
+        
+        <div class="hidden md:flex items-center gap-2 text-xs font-semibold px-2.5 py-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-700">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+          AI Agent Status: Active (Processing Leads)
+        </div>
+      </div>
+
+      <!-- Center: Search input bar -->
+      <div class="w-full max-w-md mx-4 hidden sm:block">
+        <label for="dashboard-search" class="sr-only">Search leads</label>
+        <div class="relative">
+          <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <svg class="h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+          </div>
+          <input id="dashboard-search" name="search" type="search" placeholder="Search by name, ID, location, or property..." class="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-sm placeholder-slate-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600 focus:border-blue-600 transition-all">
+        </div>
+      </div>
+
+      <!-- Right: Alerts and Profile dropdown -->
+      <div class="flex items-center gap-4">
+        <!-- Notifications Button -->
+        <button class="relative p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-all" id="notification-bell" aria-label="Notifications">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+          </svg>
+          <!-- Badge -->
+          <span class="absolute top-1.5 right-1.5 w-2 h-2 bg-blue-600 rounded-full"></span>
+        </button>
+
+        <!-- Divider -->
+        <div class="h-6 w-px bg-slate-200"></div>
+
+        <!-- Connection State -->
+        <span class="text-xs text-slate-500 font-semibold hidden md:inline">Server Node: AP-South (Mumbai)</span>
+      </div>
+    </header>
+
+    <!-- ========================================== -->
+    <!-- 3. SCROLLABLE DASHBOARD CONTENT AREA       -->
+    <!-- ========================================== -->
+    <main class="flex-1 overflow-y-auto px-6 py-8">
+      
+      <!-- Top Title Bar -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+        <div>
+          <h1 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight font-display">AI Qualification Dashboard</h1>
+          <p class="text-sm text-slate-500 mt-1">Review live qualified leads, pipeline matches, and automated conversation scores.</p>
+        </div>
+        <div class="flex items-center gap-2 self-start md:self-auto">
+          <button class="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm" id="btn-export-csv">
+            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            Export CSV
+          </button>
+          <button class="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-md shadow-blue-600/10" id="btn-refresh">
+            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.2 8H18v3"/></svg>
+            Refresh Leads
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI metrics dashboard row -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        
+        <!-- Total Leads -->
+        <div class="glass-panel rounded-xl p-6 shadow-sm relative overflow-hidden transition-all hover:shadow-md">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-500 uppercase tracking-wider font-display">Total Leads</span>
+            <div class="p-2 bg-slate-100 text-slate-600 rounded-lg">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+            </div>
+          </div>
+          <div class="flex items-baseline gap-2 mt-4">
+            <span class="text-3xl font-extrabold text-slate-900" id="kpi-total-leads">--</span>
+            <span class="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">+12% wk</span>
+          </div>
+        </div>
+
+        <!-- AI Qualified -->
+        <div class="glass-panel rounded-xl p-6 shadow-sm relative overflow-hidden transition-all hover:shadow-md">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-500 uppercase tracking-wider font-display">AI Qualified</span>
+            <div class="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+          </div>
+          <div class="flex items-baseline gap-2 mt-4">
+            <span class="text-3xl font-extrabold text-slate-900" id="kpi-qualified">--</span>
+            <span class="text-xs font-semibold text-slate-500">Score &ge; 80</span>
+          </div>
+        </div>
+
+        <!-- Average AI Score -->
+        <div class="glass-panel rounded-xl p-6 shadow-sm relative overflow-hidden transition-all hover:shadow-md">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-500 uppercase tracking-wider font-display">Avg Match Score</span>
+            <div class="p-2 bg-blue-50 text-blue-600 rounded-lg">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2"/></svg>
+            </div>
+          </div>
+          <div class="flex items-baseline gap-2 mt-4">
+            <span class="text-3xl font-extrabold text-slate-900" id="kpi-avg-score">--</span>
+            <span class="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">High Trust</span>
+          </div>
+        </div>
+
+        <!-- Pending Action -->
+        <div class="glass-panel rounded-xl p-6 shadow-sm relative overflow-hidden transition-all hover:shadow-md">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-500 uppercase tracking-wider font-display">New / Pending</span>
+            <div class="p-2 bg-amber-50 text-amber-600 rounded-lg">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+          </div>
+          <div class="flex items-baseline gap-2 mt-4">
+            <span class="text-3xl font-extrabold text-slate-900" id="kpi-pending-action">--</span>
+            <span class="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded">Needs Assigning</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========================================== -->
+      <!-- 4. TWO-COLUMN SPLIT LAYOUT (Table + Panel) -->
+      <!-- ========================================== -->
+      <div class="grid grid-cols-1 xl:grid-cols-3 gap-8 items-start">
+        
+        <!-- COLUMN A: Filters and Lead Table (2/3 width) -->
+        <div class="xl:col-span-2 glass-panel rounded-2xl shadow-sm overflow-hidden flex flex-col border border-slate-200">
+          
+          <!-- Table Header / Controls Area -->
+          <div class="px-6 py-5 border-b border-slate-100 bg-white flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <!-- Tabs filters -->
+            <div class="flex border-b border-slate-100 overflow-x-auto gap-4" role="tablist">
+              <button class="tab-btn px-1 py-3 border-b-2 border-blue-600 text-blue-600 font-semibold text-sm transition-all whitespace-nowrap" data-tab="all" role="tab">
+                All Leads
+              </button>
+              <button class="tab-btn px-1 py-3 border-b-2 border-transparent text-slate-500 hover:text-slate-800 text-sm font-medium transition-all whitespace-nowrap" data-tab="qualified" role="tab">
+                Qualified
+              </button>
+              <button class="tab-btn px-1 py-3 border-b-2 border-transparent text-slate-500 hover:text-slate-800 text-sm font-medium transition-all whitespace-nowrap" data-tab="warm" role="tab">
+                Warm
+              </button>
+              <button class="tab-btn px-1 py-3 border-b-2 border-transparent text-slate-500 hover:text-slate-800 text-sm font-medium transition-all whitespace-nowrap" data-tab="new" role="tab">
+                New
+              </button>
+            </div>
+
+            <!-- Sorting & Total count display -->
+            <div class="flex items-center gap-3 self-end sm:self-auto">
+              <span class="text-xs text-slate-400 font-medium whitespace-nowrap" id="leads-count-text">--</span>
+              <label for="sort-select" class="sr-only">Sort by</label>
+              <select id="sort-select" class="px-3 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white text-slate-700 font-semibold transition-all">
+                <option value="score-desc">AI Score (High &rarr; Low)</option>
+                <option value="score-asc">AI Score (Low &rarr; High)</option>
+                <option value="budget-desc">Budget (High &rarr; Low)</option>
+                <option value="date-desc">Newest First</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Main Leads Table element -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse" id="leads-data-table">
+              <thead class="bg-slate-50/70 border-b border-slate-100 text-slate-500">
+                <tr>
+                  <th class="px-6 py-4.5 text-xs font-bold uppercase tracking-wider font-display">Lead Profile</th>
+                  <th class="px-6 py-4.5 text-xs font-bold uppercase tracking-wider font-display">Preference</th>
+                  <th class="px-6 py-4.5 text-xs font-bold uppercase tracking-wider font-display">Budget</th>
+                  <th class="px-6 py-4.5 text-xs font-bold uppercase tracking-wider font-display">AI Score</th>
+                  <th class="px-6 py-4.5 text-xs font-bold uppercase tracking-wider font-display">Status</th>
+                  <th class="px-6 py-4.5 text-xs font-bold uppercase tracking-wider font-display">Created</th>
+                  <th class="px-6 py-4.5 text-right text-xs font-bold uppercase tracking-wider font-display">Actions</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100 bg-white" id="leads-table-body">
+                <!-- Rendered dynamically by app.js -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Empty State Display -->
+          <div class="hidden py-16 px-6 text-center bg-white" id="table-empty-state">
+            <svg class="mx-auto h-12 w-12 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            </svg>
+            <h3 class="mt-4 text-sm font-semibold text-slate-900">No leads found</h3>
+            <p class="mt-1 text-xs text-slate-500">Try modifying your search keywords or checking a different filter status tab.</p>
+          </div>
+        </div>
+
+        <!-- COLUMN B: Lead Inspector Side Panel (1/3 width) -->
+        <aside class="glass-panel rounded-2xl shadow-sm border border-slate-200 overflow-hidden" id="inspector-panel">
+          
+          <!-- State A: Placeholder before selecting a lead -->
+          <div class="p-10 text-center flex flex-col items-center justify-center min-h-[400px]" id="inspector-placeholder">
+            <div class="w-16 h-16 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 mb-4 animate-bounce">
+              <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+              </svg>
+            </div>
+            <h3 class="text-base font-bold text-slate-900 font-display">Lead AI Analysis Panel</h3>
+            <p class="text-xs text-slate-500 mt-2 max-w-xs mx-auto">Select any lead row from the dashboard list to inspect conversations, qualification scores, and AI reasoning findings.</p>
+          </div>
+
+          <!-- State B: Active Inspector Details Panel -->
+          <div class="hidden flex flex-col" id="inspector-details">
+            <!-- Header Block -->
+            <div class="px-6 py-5 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+              <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider font-display">Lead Deep Analysis</h3>
+              <button class="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-200/50 transition-colors" id="close-inspector" aria-label="Close details">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            <!-- Profile Summary -->
+            <div class="p-6 border-b border-slate-100 bg-white">
+              <div class="flex items-center gap-4">
+                <div class="h-14 w-14 rounded-full bg-blue-600 text-white font-extrabold flex items-center justify-center text-lg shadow-md border-2 border-white" id="ins-avatar">
+                  --
+                </div>
+                <div>
+                  <h4 class="text-base font-bold text-slate-900" id="ins-name">--</h4>
+                  <span class="text-xs text-slate-400 font-semibold block" id="ins-id">--</span>
+                  <div class="mt-1 text-xs text-slate-500 space-y-0.5">
+                    <span id="ins-email" class="block">--</span>
+                    <span id="ins-phone" class="block">--</span>
+                  </div>
+                  <div class="mt-2.5" id="ins-score-badge">
+                    <!-- AI score pill dynamically rendered -->
+                  </div>
+                </div>
+              </div>
+
+              <!-- Quick Contact Links -->
+              <div class="grid grid-cols-2 gap-3 mt-6">
+                <a href="#" class="inline-flex items-center justify-center px-3 py-2 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 transition-colors" id="ins-email-link">
+                  <svg class="w-4 h-4 mr-2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                  Email Lead
+                </a>
+                <a href="#" class="inline-flex items-center justify-center px-3 py-2 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 transition-colors" id="ins-phone-link">
+                  <svg class="w-4 h-4 mr-2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.94.725l.548 2.2a1 1 0 01-.321.988l-1.305.98a10.582 10.582 0 004.872 4.872l.98-1.305a1 1 0 01.988-.321l2.2.548a1 1 0 01.725.94V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
+                  Call Phone
+                </a>
+              </div>
+            </div>
+
+            <!-- Property Requirement Details -->
+            <div class="p-6 border-b border-slate-100 bg-white">
+              <h5 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 font-display">Target Acquisition Intent</h5>
+              
+              <div class="space-y-4">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs text-slate-500 font-semibold">Property Type</span>
+                  <span class="text-sm font-bold text-slate-900" id="ins-property">--</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span class="text-xs text-slate-500 font-semibold">Location Preference</span>
+                  <span class="text-sm font-bold text-slate-900" id="ins-location">--</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span class="text-xs text-slate-500 font-semibold">Purchase Budget</span>
+                  <span class="text-sm font-extrabold text-blue-600" id="ins-budget">--</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span class="text-xs text-slate-500 font-semibold">Buying Timeline</span>
+                  <span class="text-sm font-bold text-slate-900" id="ins-timeline">--</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span class="text-xs text-slate-500 font-semibold">Mortgage Status</span>
+                  <span class="text-sm" id="ins-preapproval">--</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- AI Qualification Findings / Insights -->
+            <div class="p-6 border-b border-slate-100 bg-white">
+              <h5 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 font-display">AI Extraction Findings</h5>
+              <ul class="space-y-3" id="ins-insights-list">
+                <!-- Insights populated by app.js -->
+              </ul>
+            </div>
+
+            <!-- Administrative Assignment & Status controls -->
+            <div class="p-6 bg-slate-50/50 space-y-4">
+              <div>
+                <label for="ins-agent" class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 font-display">Assigned Agent</label>
+                <div class="flex items-center gap-2 p-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-700" id="ins-agent-container">
+                  <div class="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-600">👤</div>
+                  <span id="ins-agent">--</span>
+                </div>
+              </div>
+              
+              <div>
+                <label for="ins-status-select" class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 font-display">Change Lead Pipeline Stage</label>
+                <select id="ins-status-select" class="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 text-slate-700 transition-all">
+                  <option value="New">New Lead (Unassigned)</option>
+                  <option value="Qualified">Qualified (AI Approved)</option>
+                  <option value="Warm">Warm Prospect (Nurturing)</option>
+                  <option value="Contacted">Contacted (Meeting Set)</option>
+                  <option value="Cold">Cold / Disqualified</option>
+                </select>
+              </div>
+            </div>
+
+          </div>
+        </aside>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Loading logic link -->
+  <script src="app.js"></script>
+</body>
+</html>
