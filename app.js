@@ -664,8 +664,172 @@ async function initializeDashboard() {
   }
 }
 
+/**
+ * Bind modal toggle and submit events
+ */
+function bindModalEvents() {
+  const modal = document.getElementById('add-lead-modal');
+  const addLeadBtn = document.getElementById('btn-add-lead');
+  const closeBtn = document.getElementById('close-add-lead-modal');
+  const cancelBtn = document.getElementById('btn-cancel-add-lead');
+  const form = document.getElementById('add-lead-form');
+
+  if (!modal || !addLeadBtn) return;
+
+  // Open modal
+  addLeadBtn.addEventListener('click', () => {
+    modal.classList.add('modal-visible');
+  });
+
+  // Close modal helper
+  const closeModal = () => {
+    modal.classList.remove('modal-visible');
+    form.reset();
+  };
+
+  closeBtn.addEventListener('click', closeModal);
+  cancelBtn.addEventListener('click', closeModal);
+
+  // Close on backdrop click
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      closeModal();
+    }
+  });
+
+  // Handle lead form submission
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+
+    const name = document.getElementById('form-name').value;
+    const email = document.getElementById('form-email').value;
+    const phone = document.getElementById('form-phone').value;
+    const propertyType = document.getElementById('form-property').value;
+    const location = document.getElementById('form-location').value;
+    const budget = parseInt(document.getElementById('form-budget').value, 10);
+    const timeline = document.getElementById('form-timeline').value;
+    const loanApproved = document.getElementById('form-loan').value === 'true';
+    const agentAssigned = document.getElementById('form-agent').value;
+
+    // Run Mock AI Lead Qualification Engine
+    const score = calculateMockAiScore(timeline, loanApproved, budget);
+    
+    // Deduce Lead Status from AI Score
+    let status = 'New';
+    if (score >= 80) status = 'Qualified';
+    else if (score >= 60) status = 'Warm';
+
+    // Generate AI Findings Reasoning
+    const aiInsights = generateMockAiInsights(name, propertyType, location, timeline, loanApproved, budget, score);
+
+    // Create new lead item
+    const newLead = {
+      id: `LD-${Math.floor(1000 + Math.random() * 9000)}`,
+      name,
+      email,
+      phone,
+      propertyType,
+      location,
+      budget,
+      aiScore: score,
+      status,
+      createdAt: new Date().toISOString(),
+      aiInsights,
+      details: {
+        timeline,
+        mortgageApproved: loanApproved,
+        agentAssigned
+      }
+    };
+
+    // Add to global state array
+    AppState.leads.unshift(newLead);
+    AppState.currentTab = 'all';
+    
+    // Sync UI tab active styling
+    const tabs = document.querySelectorAll('.tab-btn');
+    tabs.forEach(t => {
+      if (t.getAttribute('data-tab') === 'all') {
+        t.classList.remove('border-transparent', 'text-slate-500');
+        t.classList.add('border-blue-600', 'text-blue-600', 'font-semibold');
+      } else {
+        t.classList.remove('border-blue-600', 'text-blue-600', 'font-semibold');
+        t.classList.add('border-transparent', 'text-slate-500');
+      }
+    });
+
+    // Re-render and select
+    applyFiltersAndSort();
+    renderKpiCards();
+    selectLead(newLead.id);
+
+    // Close the modal
+    closeModal();
+  });
+}
+
+/**
+ * Calculates a mock AI Qualification Score based on criteria inputs
+ */
+function calculateMockAiScore(timeline, loanApproved, budget) {
+  let score = 40; // Base score
+  
+  // Timeline contribution
+  if (timeline.includes("Immediate")) score += 30;
+  else if (timeline.includes("1 - 3 months")) score += 20;
+  else if (timeline.includes("3 - 6 months")) score += 10;
+  else if (timeline.includes("6+ months")) score += 2;
+  
+  // Pre-approved financing contribution
+  if (loanApproved) score += 25;
+  else score += 5;
+  
+  // Budget scaling contribution (higher budgets receive minor boosts)
+  if (budget >= 10000000) score += 5;      // >= 1 Crore (10M INR)
+  else if (budget >= 5000000) score += 3;  // >= 50 Lakhs (5M INR)
+  
+  // Conversational variance offset
+  const offset = Math.floor(Math.random() * 8) - 2; // range: -2 to +5
+  score = Math.min(100, Math.max(10, score + offset));
+  return score;
+}
+
+/**
+ * Generates structured mock AI Findings based on submitted lead data
+ */
+function generateMockAiInsights(name, propertyType, location, timeline, loanApproved, budget, score) {
+  const insights = [];
+  
+  if (loanApproved) {
+    insights.push(`Verified pre-approved home loan details. Funding is fully secured.`);
+  } else {
+    insights.push(`Home loan pre-approval is pending. Action required from assigned broker.`);
+  }
+
+  if (timeline.includes("Immediate")) {
+    insights.push(`High urgency buyer: searching for immediate occupancy (< 30 days).`);
+  } else if (timeline.includes("6+")) {
+    insights.push(`Long-term buyer profile: currently in initial planning/research stage.`);
+  } else {
+    insights.push(`Medium urgency buyer: planning acquisition within the next quarter.`);
+  }
+
+  insights.push(`Targeting ${propertyType} in the premium cluster of ${location}.`);
+
+  if (score >= 85) {
+    insights.push(`Highly qualified lead (Score: ${score}%). Conversation indicates strong purchase intent.`);
+  } else if (score >= 65) {
+    insights.push(`Moderate qualification match (Score: ${score}%). Nurturing required on pricing structure.`);
+  } else {
+    insights.push(`Low qualification metrics. Require verification of buying timeline and capability.`);
+  }
+  
+  return insights;
+}
+
 // Start core operations on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
   bindEvents();
+  bindModalEvents();
   initializeDashboard();
 });

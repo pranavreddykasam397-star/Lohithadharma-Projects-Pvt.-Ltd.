@@ -154,9 +154,13 @@
             <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
             Export CSV
           </button>
-          <button class="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-md shadow-blue-600/10" id="btn-refresh">
+          <button class="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm" id="btn-refresh">
             <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.2 8H18v3"/></svg>
-            Refresh Leads
+            Refresh
+          </button>
+          <button class="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-md shadow-blue-600/10" id="btn-add-lead">
+            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+            + New Lead
           </button>
         </div>
       </div>
@@ -409,6 +413,117 @@
 
       </div>
     </main>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 5. ADD NEW LEAD MODAL (Popup Form)          -->
+  <!-- ========================================== -->
+  <div id="add-lead-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center transition-all duration-300 opacity-0 pointer-events-none">
+    <div id="add-lead-modal-panel" class="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full mx-4 overflow-hidden transform scale-95 transition-all duration-300 flex flex-col max-h-[90vh]">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-5 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+        <div>
+          <h3 class="text-base font-bold text-slate-900 font-display">Submit New Real Estate Lead</h3>
+          <p class="text-xs text-slate-500 mt-0.5">Fill in buyer details to run the automated AI lead qualification engine.</p>
+        </div>
+        <button class="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-200/50 transition-colors" id="close-add-lead-modal">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Form Content -->
+      <form id="add-lead-form" class="p-6 space-y-4 overflow-y-auto flex-1">
+        <!-- Name -->
+        <div>
+          <label for="form-name" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-display">Full Name *</label>
+          <input type="text" id="form-name" required placeholder="e.g. Amit Kumar" class="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all bg-slate-50/50 focus:bg-white">
+        </div>
+
+        <!-- Contact Fields Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label for="form-email" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-display">Email Address *</label>
+            <input type="email" id="form-email" required placeholder="e.g. amit@gmail.com" class="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all bg-slate-50/50 focus:bg-white">
+          </div>
+          <div>
+            <label for="form-phone" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-display">Phone Number *</label>
+            <input type="tel" id="form-phone" required pattern="^(\+91[\-\s]?)?[6-9]\d{9}$" placeholder="e.g. +91 98765 43210" class="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all bg-slate-50/50 focus:bg-white" title="Please enter a valid 10-digit Indian mobile number (e.g. +91 98765 43210 or 9876543210)">
+          </div>
+        </div>
+
+        <!-- Property Preference & Location Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label for="form-property" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-display">Property Type *</label>
+            <select id="form-property" required class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all bg-slate-50/50 focus:bg-white text-slate-700">
+              <option value="">Select Option</option>
+              <option value="2 BHK Apartment">2 BHK Apartment</option>
+              <option value="3 BHK Apartment">3 BHK Apartment</option>
+              <option value="4 BHK Luxury Penthouse">4 BHK Luxury Penthouse</option>
+              <option value="Independent Villa">Independent Villa</option>
+              <option value="3 BHK Builder Floor">3 BHK Builder Floor</option>
+              <option value="Luxury Row House">Luxury Row House</option>
+              <option value="Spacious Farmhouse">Spacious Farmhouse</option>
+              <option value="Commercial Office Space">Commercial Office Space</option>
+            </select>
+          </div>
+          <div>
+            <label for="form-location" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-display">Location Preference *</label>
+            <input type="text" id="form-location" required placeholder="e.g. Worli, Mumbai" class="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all bg-slate-50/50 focus:bg-white">
+          </div>
+        </div>
+
+        <!-- Budget & Timeline Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label for="form-budget" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-display">Budget (INR) *</label>
+            <input type="number" id="form-budget" required min="100000" placeholder="e.g. 7500000" class="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all bg-slate-50/50 focus:bg-white">
+          </div>
+          <div>
+            <label for="form-timeline" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-display">Buying Timeline *</label>
+            <select id="form-timeline" required class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all bg-slate-50/50 focus:bg-white text-slate-700">
+              <option value="">Select Option</option>
+              <option value="Immediate (< 1 month)">Immediate (&lt; 1 month)</option>
+              <option value="1 - 3 months">1 - 3 months</option>
+              <option value="3 - 6 months">3 - 6 months</option>
+              <option value="6+ months">6+ months</option>
+              <option value="Indefinite">Indefinite</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Mortgage & Agent Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label for="form-loan" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-display">Loan Pre-approved? *</label>
+            <select id="form-loan" required class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all bg-slate-50/50 focus:bg-white text-slate-700">
+              <option value="false">No / Pending Action</option>
+              <option value="true">Yes / Pre-approved</option>
+            </select>
+          </div>
+          <div>
+            <label for="form-agent" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-display">Assign Agent *</label>
+            <select id="form-agent" required class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all bg-slate-50/50 focus:bg-white text-slate-700">
+              <option value="Sarah Jenkins">Sarah Jenkins</option>
+              <option value="Michael Thorne">Michael Thorne</option>
+              <option value="Emma Watson">Emma Watson</option>
+            </select>
+          </div>
+        </div>
+      </form>
+
+      <!-- Modal Footer -->
+      <div class="px-6 py-4.5 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-3">
+        <button type="button" class="px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-all" id="btn-cancel-add-lead">
+          Cancel
+        </button>
+        <button type="submit" form="add-lead-form" class="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-all shadow-md shadow-blue-600/10">
+          Run AI Qualification
+        </button>
+      </div>
+
+    </div>
   </div>
 
   <!-- Loading logic link -->
