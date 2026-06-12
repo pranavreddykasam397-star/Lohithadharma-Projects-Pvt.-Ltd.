@@ -2,7 +2,7 @@
   "name": "real-estate-ai-lead-qualification",
   "version": "1.0.0",
   "description": "Frontend foundation for Real Estate AI Lead Qualification System",
-  "main": "index.html",
+  "main": "server.js",
   "type": "module",
   "scripts": {
     "dev": "vite --port 3000 --open",
