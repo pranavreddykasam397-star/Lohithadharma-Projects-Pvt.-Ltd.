@@ -50,6 +50,10 @@ body {
   overflow-x: hidden;
 }
 
+button, select, input[type="submit"], input[type="button"], [role="button"] {
+  cursor: pointer;
+}
+
 h1, h2, h3, h4, h5, h6, .font-display {
   font-family: var(--font-display);
 }
@@ -222,3 +226,10 @@ h1, h2, h3, h4, h5, h6, .font-display {
 #add-lead-modal.modal-visible #add-lead-modal-panel {
   transform: scale(1) !important;
 }
+
+/* Toast Notifications styling */
+.toast-card {
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.03), 0 0 0 1px rgba(0, 0, 0, 0.02);
+}
+

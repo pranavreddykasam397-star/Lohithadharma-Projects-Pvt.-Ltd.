@@ -205,34 +205,107 @@ const AppState = {
 // 3. API Modularity Wrapper
 // ==========================================
 const LeadsAPI = {
-  /**
-   * Simulates an asynchronous backend API fetch.
-   * Can be easily swapped with standard fetch/axios requests later.
-   * Example: return fetch('/api/leads').then(res => res.json());
-   */
   async getAllLeads() {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve(JSON.parse(JSON.stringify(SAMPLE_LEADS)));
-      }, 500); // 500ms mock network latency
-    });
+    const response = await fetch('/api/leads');
+    if (!response.ok) {
+      throw new Error(`Failed to fetch leads (Status: ${response.status})`);
+    }
+    return response.json();
   },
 
-  /**
-   * Simulates assigning a lead to a broker
-   */
+  async getLeadDetails(id) {
+    const response = await fetch(`/api/leads/${id}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch lead details for ${id} (Status: ${response.status})`);
+    }
+    return response.json();
+  },
+
   async updateLeadStatus(id, newStatus) {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve({ success: true, updatedId: id, status: newStatus });
-      }, 300);
+    const response = await fetch(`/api/leads/${id}/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ status: newStatus })
     });
+    if (!response.ok) {
+      throw new Error(`Failed to update status for lead ${id} (Status: ${response.status})`);
+    }
+    return response.json();
+  },
+
+  async createLead(leadData) {
+    const response = await fetch('/api/leads', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(leadData)
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to create new lead (Status: ${response.status})`);
+    }
+    return response.json();
   }
 };
 
 // ==========================================
 // 4. UI Helper Functions
 // ==========================================
+
+function showToast(message, type = 'info') {
+  // Check if toast-container exists, if not create it
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.className = 'fixed top-4 right-4 z-50 flex flex-col gap-3 pointer-events-none';
+    document.body.appendChild(container);
+  }
+  
+  // Create toast element
+  const toast = document.createElement('div');
+  toast.className = `toast-card pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border text-sm font-semibold transition-all transform translate-x-full opacity-0 ${
+    type === 'success' 
+      ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+      : type === 'error'
+      ? 'bg-rose-50 border-rose-200 text-rose-800'
+      : 'bg-white border-slate-200 text-slate-800'
+  }`;
+  
+  // Icon SVG
+  const icon = type === 'success' 
+    ? `<svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`
+    : type === 'error'
+    ? `<svg class="w-5 h-5 text-rose-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>`
+    : `<svg class="w-5 h-5 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`;
+    
+  toast.innerHTML = `
+    ${icon}
+    <span class="flex-1">${message}</span>
+    <button class="text-current opacity-60 hover:opacity-100 transition-opacity ml-2 focus:outline-none" onclick="this.parentElement.remove()">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+    </button>
+  `;
+  
+  container.appendChild(toast);
+  
+  // Transition in
+  setTimeout(() => {
+    toast.classList.remove('translate-x-full', 'opacity-0');
+    toast.classList.add('translate-x-0', 'opacity-100');
+  }, 10);
+  
+  // Auto dismiss
+  setTimeout(() => {
+    toast.classList.remove('translate-x-0', 'opacity-100');
+    toast.classList.add('translate-x-full', 'opacity-0');
+    setTimeout(() => {
+      toast.remove();
+    }, 300);
+  }, 4000);
+}
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('en-IN', {
@@ -401,6 +474,9 @@ function renderLeadInspector() {
   const inspector = document.getElementById('inspector-panel');
   const placeholder = document.getElementById('inspector-placeholder');
   const details = document.getElementById('inspector-details');
+  const loading = document.getElementById('inspector-loading');
+
+  if (loading) loading.classList.add('hidden');
 
   if (!AppState.selectedLeadId) {
     placeholder.classList.remove('hidden');
@@ -459,12 +535,47 @@ function renderLeadInspector() {
 // 6. Application Controllers & Logic
 // ==========================================
 
-function selectLead(leadId) {
+async function selectLead(leadId) {
   AppState.selectedLeadId = leadId;
+  
   // Re-render table to highlight active row
   renderLeadsTable();
-  // Render details panel
-  renderLeadInspector();
+  
+  const placeholder = document.getElementById('inspector-placeholder');
+  const details = document.getElementById('inspector-details');
+  const loading = document.getElementById('inspector-loading');
+
+  if (!leadId) {
+    if (placeholder) placeholder.classList.remove('hidden');
+    if (details) details.classList.add('hidden');
+    if (loading) loading.classList.add('hidden');
+    return;
+  }
+
+  // Show loading skeleton
+  if (placeholder) placeholder.classList.add('hidden');
+  if (details) details.classList.add('hidden');
+  if (loading) loading.classList.remove('hidden');
+
+  try {
+    const fullLead = await LeadsAPI.getLeadDetails(leadId);
+    
+    // Update the local cache in global state
+    const index = AppState.leads.findIndex(l => l.id === leadId);
+    if (index !== -1) {
+      AppState.leads[index] = fullLead;
+    }
+
+    // Render details
+    renderLeadInspector();
+  } catch (error) {
+    console.error(`Failed to fetch lead details for ${leadId}:`, error);
+    showToast(`Failed to load lead details: ${error.message}`, "error");
+    
+    // Fallback: hide loading, show placeholder
+    if (loading) loading.classList.add('hidden');
+    if (placeholder) placeholder.classList.remove('hidden');
+  }
 }
 
 /**
@@ -570,10 +681,16 @@ function bindEvents() {
           applyFiltersAndSort();
           renderKpiCards();
           renderLeadInspector();
+          showToast(`Lead pipeline stage updated to: ${newStatus}`, "success");
         }
       }
     } catch (err) {
       console.error("Failed to update status:", err);
+      showToast(`Failed to update status: ${err.message}`, "error");
+      
+      // Revert select dropdown to database state
+      const lead = AppState.leads.find(l => l.id === leadId);
+      if (lead) statusSelect.value = lead.status;
     } finally {
       statusSelect.disabled = false;
     }
@@ -606,14 +723,21 @@ function bindTableActions() {
       const lead = AppState.leads.find(l => l.id === id);
       if (lead && lead.status !== "Qualified") {
         btn.classList.add('animate-pulse');
-        await LeadsAPI.updateLeadStatus(id, "Qualified");
-        lead.status = "Qualified";
-        applyFiltersAndSort();
-        renderKpiCards();
-        if (AppState.selectedLeadId === id) {
-          renderLeadInspector();
+        try {
+          await LeadsAPI.updateLeadStatus(id, "Qualified");
+          lead.status = "Qualified";
+          applyFiltersAndSort();
+          renderKpiCards();
+          if (AppState.selectedLeadId === id) {
+            renderLeadInspector();
+          }
+          showToast(`Lead ${lead.name} has been quick-qualified!`, "success");
+        } catch (err) {
+          console.error("Failed to quick qualify:", err);
+          showToast(`Failed to qualify lead: ${err.message}`, "error");
+        } finally {
+          btn.classList.remove('animate-pulse');
         }
-        btn.classList.remove('animate-pulse');
       }
     });
   });
@@ -652,10 +776,11 @@ async function initializeDashboard() {
     }
   } catch (error) {
     console.error("Dashboard failed to initialize:", error);
+    showToast(`Database unreachable or API error: ${error.message}`, "error");
     tableBody.innerHTML = `
       <tr>
         <td colspan="7" class="px-6 py-10 text-center text-rose-500 font-semibold">
-          Error loading dashboard data. Please try again.
+          Error loading dashboard data. Database or API connection failed.
         </td>
       </tr>
     `;
@@ -698,7 +823,7 @@ function bindModalEvents() {
   });
 
   // Handle lead form submission
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
     const name = document.getElementById('form-name').value;
@@ -708,63 +833,61 @@ function bindModalEvents() {
     const location = document.getElementById('form-location').value;
     const budget = parseInt(document.getElementById('form-budget').value, 10);
     const timeline = document.getElementById('form-timeline').value;
-    const loanApproved = document.getElementById('form-loan').value === 'true';
+    const mortgageApproved = document.getElementById('form-loan').value === 'true';
     const agentAssigned = document.getElementById('form-agent').value;
 
-    // Run Mock AI Lead Qualification Engine
-    const score = calculateMockAiScore(timeline, loanApproved, budget);
-    
-    // Deduce Lead Status from AI Score
-    let status = 'New';
-    if (score >= 80) status = 'Qualified';
-    else if (score >= 60) status = 'Warm';
-
-    // Generate AI Findings Reasoning
-    const aiInsights = generateMockAiInsights(name, propertyType, location, timeline, loanApproved, budget, score);
-
-    // Create new lead item
-    const newLead = {
-      id: `LD-${Math.floor(1000 + Math.random() * 9000)}`,
+    const leadData = {
       name,
       email,
       phone,
       propertyType,
       location,
       budget,
-      aiScore: score,
-      status,
-      createdAt: new Date().toISOString(),
-      aiInsights,
-      details: {
-        timeline,
-        mortgageApproved: loanApproved,
-        agentAssigned
-      }
+      timeline,
+      mortgageApproved,
+      agentAssigned
     };
 
-    // Add to global state array
-    AppState.leads.unshift(newLead);
-    AppState.currentTab = 'all';
-    
-    // Sync UI tab active styling
-    const tabs = document.querySelectorAll('.tab-btn');
-    tabs.forEach(t => {
-      if (t.getAttribute('data-tab') === 'all') {
-        t.classList.remove('border-transparent', 'text-slate-500');
-        t.classList.add('border-blue-600', 'text-blue-600', 'font-semibold');
-      } else {
-        t.classList.remove('border-blue-600', 'text-blue-600', 'font-semibold');
-        t.classList.add('border-transparent', 'text-slate-500');
-      }
-    });
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalBtnText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Processing AI Logic...";
 
-    // Re-render and select
-    applyFiltersAndSort();
-    renderKpiCards();
-    selectLead(newLead.id);
+    try {
+      const createdLead = await LeadsAPI.createLead(leadData);
 
-    // Close the modal
-    closeModal();
+      // Add to global state array
+      AppState.leads.unshift(createdLead);
+      AppState.currentTab = 'all';
+      
+      // Sync UI tab active styling
+      const tabs = document.querySelectorAll('.tab-btn');
+      tabs.forEach(t => {
+        if (t.getAttribute('data-tab') === 'all') {
+          t.classList.remove('border-transparent', 'text-slate-500');
+          t.classList.add('border-blue-600', 'text-blue-600', 'font-semibold');
+        } else {
+          t.classList.remove('border-blue-600', 'text-blue-600', 'font-semibold');
+          t.classList.add('border-transparent', 'text-slate-500');
+        }
+      });
+
+      // Re-render and select
+      applyFiltersAndSort();
+      renderKpiCards();
+      selectLead(createdLead.id);
+      
+      showToast(`Lead for ${name} created and qualified successfully!`, "success");
+
+      // Close the modal
+      closeModal();
+    } catch (err) {
+      console.error("Failed to submit lead:", err);
+      showToast(`Submission failed: ${err.message}`, "error");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalBtnText;
+    }
   });
 }
 
