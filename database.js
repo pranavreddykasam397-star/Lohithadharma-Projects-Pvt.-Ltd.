@@ -1,50 +1,12 @@
-import sqlite3 from 'sqlite3';
+import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const dbPath = path.resolve(__dirname, 'leads.db');
+const dbPath = path.resolve(__dirname, 'leads.json');
 
-// Initialize database connection
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('Error opening SQLite database:', err.message);
-  } else {
-    console.log('Connected to the SQLite database at:', dbPath);
-    initializeDatabase();
-  }
-});
-
-// Helper functions to wrap sqlite3 methods in Promises
-function dbRun(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) reject(err);
-      else resolve(this);
-    });
-  });
-}
-
-function dbAll(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
-  });
-}
-
-function dbGet(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
-  });
-}
-
-// Initial Mock Data (SAMPLE_LEADS) from app.js
+// Initial Mock Data (SEED_LEADS)
 const SEED_LEADS = [
   {
     id: "LD-9082",
@@ -98,7 +60,7 @@ const SEED_LEADS = [
     email: "rsharma@sharmaholdings.in",
     phone: "+91 98100 76234",
     propertyType: "3 BHK Builder Floor",
-    location: "Vastu-compliant layout",
+    location: "Vasant Kunj, Delhi",
     budget: 8500000,
     aiScore: 72,
     status: "Warm",
@@ -205,110 +167,51 @@ const SEED_LEADS = [
   }
 ];
 
-// Initialize table and seed data
-async function initializeDatabase() {
+// Helper read/write file functions
+async function readLeads() {
   try {
-    await dbRun(`
-      CREATE TABLE IF NOT EXISTS leads (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL,
-        phone TEXT NOT NULL,
-        propertyType TEXT NOT NULL,
-        location TEXT NOT NULL,
-        budget INTEGER NOT NULL,
-        aiScore INTEGER NOT NULL,
-        status TEXT NOT NULL,
-        createdAt TEXT NOT NULL,
-        timeline TEXT NOT NULL,
-        mortgageApproved INTEGER NOT NULL,
-        agentAssigned TEXT NOT NULL,
-        aiInsights TEXT NOT NULL
-      )
-    `);
-    console.log('Leads database table verified/created.');
-
-    const countRow = await dbGet('SELECT COUNT(*) as count FROM leads');
-    if (countRow.count === 0) {
-      console.log('Database table is empty. Seeding initial mock data...');
-      for (const lead of SEED_LEADS) {
-        await insertLeadRaw(lead);
-      }
-      console.log('Database successfully seeded with', SEED_LEADS.length, 'leads.');
-    }
+    const data = await fs.readFile(dbPath, 'utf8');
+    return JSON.parse(data);
   } catch (err) {
-    console.error('Failed to initialize or seed database:', err);
+    // If the file does not exist, initialize it with the seed data
+    await writeLeads(SEED_LEADS);
+    return SEED_LEADS;
   }
 }
 
-// Insert raw lead structure helper (used by seed)
-async function insertLeadRaw(lead) {
-  const query = `
-    INSERT INTO leads (
-      id, name, email, phone, propertyType, location, budget, 
-      aiScore, status, createdAt, timeline, mortgageApproved, agentAssigned, aiInsights
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `;
-  const params = [
-    lead.id,
-    lead.name,
-    lead.email,
-    lead.phone,
-    lead.propertyType,
-    lead.location,
-    lead.budget,
-    lead.aiScore,
-    lead.status,
-    lead.createdAt,
-    lead.details.timeline,
-    lead.details.mortgageApproved ? 1 : 0,
-    lead.details.agentAssigned,
-    JSON.stringify(lead.aiInsights)
-  ];
-  await dbRun(query, params);
-}
-
-// Convert row to standard lead object format expected by UI
-function mapRowToLead(row) {
-  if (!row) return null;
-  return {
-    id: row.id,
-    name: row.name,
-    email: row.email,
-    phone: row.phone,
-    propertyType: row.propertyType,
-    location: row.location,
-    budget: row.budget,
-    aiScore: row.aiScore,
-    status: row.status,
-    createdAt: row.createdAt,
-    aiInsights: JSON.parse(row.aiInsights),
-    details: {
-      timeline: row.timeline,
-      mortgageApproved: row.mortgageApproved === 1,
-      agentAssigned: row.agentAssigned
-    }
-  };
+async function writeLeads(leads) {
+  await fs.writeFile(dbPath, JSON.stringify(leads, null, 2), 'utf8');
 }
 
 // EXPORTED API DATABASE INTERACTION METHODS
 
 export async function getAllLeads() {
-  const rows = await dbAll('SELECT * FROM leads ORDER BY aiScore DESC');
-  return rows.map(mapRowToLead);
+  const leads = await readLeads();
+  // Return sorted by aiScore descending
+  return leads.sort((a, b) => b.aiScore - a.aiScore);
 }
 
 export async function getLeadById(id) {
-  const row = await dbGet('SELECT * FROM leads WHERE id = ?', [id]);
-  return mapRowToLead(row);
+  const leads = await readLeads();
+  return leads.find(l => l.id === id) || null;
 }
 
 export async function createLead(lead) {
-  await insertLeadRaw(lead);
+  const leads = await readLeads();
+  leads.unshift(lead);
+  await writeLeads(leads);
   return lead;
 }
 
 export async function updateLeadStatus(id, status) {
-  await dbRun('UPDATE leads SET status = ? WHERE id = ?', [status, id]);
+  const leads = await readLeads();
+  const leadIndex = leads.findIndex(l => l.id === id);
+  if (leadIndex !== -1) {
+    leads[leadIndex].status = status;
+    await writeLeads(leads);
+  }
   return { success: true, updatedId: id, status };
 }
+
+// Log startup confirmation
+console.log('JSON File database layer initialized at:', dbPath);
