@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite --port 3000 --open",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node server.js"
   },
   "devDependencies": {
     "vite": "^6.0.0"

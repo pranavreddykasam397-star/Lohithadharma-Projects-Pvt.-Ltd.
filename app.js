@@ -272,13 +272,18 @@ const UseLocalStorage = {
   }
 };
 
+// Define the Render backend service base URL. Replace with your actual Render API service URL once deployed!
+const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? '' // Relative path (proxied by Vite) during local development
+  : 'https://lohithadharma-projects-pvt-ltd-backend.onrender.com'; // Your production Render backend URL
+
 const LeadsAPI = {
   async getAllLeads() {
     if (UseLocalStorage.isFallback) {
       return UseLocalStorage.getAllLeads();
     }
     try {
-      const response = await fetch('/api/leads');
+      const response = await fetch(API_BASE_URL + '/api/leads');
       if (!response.ok) throw new Error();
       return await response.json();
     } catch (error) {
@@ -293,7 +298,7 @@ const LeadsAPI = {
       return UseLocalStorage.getLeadDetails(id);
     }
     try {
-      const response = await fetch(`/api/leads/${id}`);
+      const response = await fetch(`${API_BASE_URL}/api/leads/${id}`);
       if (!response.ok) throw new Error();
       return await response.json();
     } catch (error) {
@@ -307,7 +312,7 @@ const LeadsAPI = {
       return UseLocalStorage.updateLeadStatus(id, newStatus);
     }
     try {
-      const response = await fetch(`/api/leads/${id}/status`, {
+      const response = await fetch(`${API_BASE_URL}/api/leads/${id}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json'
@@ -327,7 +332,7 @@ const LeadsAPI = {
       return UseLocalStorage.createLead(leadData);
     }
     try {
-      const response = await fetch('/api/leads', {
+      const response = await fetch(API_BASE_URL + '/api/leads', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
