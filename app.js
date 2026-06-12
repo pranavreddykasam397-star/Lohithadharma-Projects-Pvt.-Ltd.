@@ -202,51 +202,144 @@ const AppState = {
 };
 
 // ==========================================
-// 3. API Modularity Wrapper
+// 3. API Modularity Wrapper (With LocalStorage Fallback for Static GitHub Pages Preview)
 // ==========================================
+const UseLocalStorage = {
+  isFallback: false,
+
+  initialize() {
+    this.isFallback = true;
+    if (!localStorage.getItem('leads_data')) {
+      // Seed initial sample leads into local storage if empty
+      localStorage.setItem('leads_data', JSON.stringify(SAMPLE_LEADS));
+    }
+    console.warn("Express API Server is offline or unreachable. Transparently fell back to browser LocalStorage.");
+  },
+
+  getAllLeads() {
+    const data = localStorage.getItem('leads_data');
+    return JSON.parse(data || '[]');
+  },
+
+  getLeadDetails(id) {
+    const leads = this.getAllLeads();
+    return leads.find(l => l.id === id) || null;
+  },
+
+  updateLeadStatus(id, newStatus) {
+    const leads = this.getAllLeads();
+    const leadIndex = leads.findIndex(l => l.id === id);
+    if (leadIndex !== -1) {
+      leads[leadIndex].status = newStatus;
+      localStorage.setItem('leads_data', JSON.stringify(leads));
+    }
+    return { success: true, updatedId: id, status: newStatus };
+  },
+
+  createLead(leadData) {
+    const leads = this.getAllLeads();
+    
+    // Evaluate scores client-side under fallback mode
+    const score = calculateMockAiScore(leadData.timeline, leadData.mortgageApproved, leadData.budget);
+    const insights = generateMockAiInsights(leadData.name, leadData.propertyType, leadData.location, leadData.timeline, leadData.mortgageApproved, leadData.budget, score);
+    
+    let status = "Cold";
+    if (score >= 80) status = "Qualified";
+    else if (score >= 60) status = "Warm";
+
+    const newLead = {
+      id: `LD-${Math.floor(1000 + Math.random() * 9000)}`,
+      name: leadData.name,
+      email: leadData.email,
+      phone: leadData.phone,
+      propertyType: leadData.propertyType,
+      location: leadData.location,
+      budget: parseInt(leadData.budget, 10),
+      aiScore: score,
+      status: status,
+      createdAt: new Date().toISOString(),
+      aiInsights: insights,
+      details: {
+        timeline: leadData.timeline,
+        mortgageApproved: leadData.mortgageApproved,
+        agentAssigned: leadData.agentAssigned
+      }
+    };
+
+    leads.unshift(newLead);
+    localStorage.setItem('leads_data', JSON.stringify(leads));
+    return newLead;
+  }
+};
+
 const LeadsAPI = {
   async getAllLeads() {
-    const response = await fetch('/api/leads');
-    if (!response.ok) {
-      throw new Error(`Failed to fetch leads (Status: ${response.status})`);
+    if (UseLocalStorage.isFallback) {
+      return UseLocalStorage.getAllLeads();
     }
-    return response.json();
+    try {
+      const response = await fetch('/api/leads');
+      if (!response.ok) throw new Error();
+      return await response.json();
+    } catch (error) {
+      UseLocalStorage.initialize();
+      showToast("Server down. Switched to offline mode.", "info");
+      return UseLocalStorage.getAllLeads();
+    }
   },
 
   async getLeadDetails(id) {
-    const response = await fetch(`/api/leads/${id}`);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch lead details for ${id} (Status: ${response.status})`);
+    if (UseLocalStorage.isFallback) {
+      return UseLocalStorage.getLeadDetails(id);
     }
-    return response.json();
+    try {
+      const response = await fetch(`/api/leads/${id}`);
+      if (!response.ok) throw new Error();
+      return await response.json();
+    } catch (error) {
+      UseLocalStorage.initialize();
+      return UseLocalStorage.getLeadDetails(id);
+    }
   },
 
   async updateLeadStatus(id, newStatus) {
-    const response = await fetch(`/api/leads/${id}/status`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ status: newStatus })
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to update status for lead ${id} (Status: ${response.status})`);
+    if (UseLocalStorage.isFallback) {
+      return UseLocalStorage.updateLeadStatus(id, newStatus);
     }
-    return response.json();
+    try {
+      const response = await fetch(`/api/leads/${id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status: newStatus })
+      });
+      if (!response.ok) throw new Error();
+      return await response.json();
+    } catch (error) {
+      UseLocalStorage.initialize();
+      return UseLocalStorage.updateLeadStatus(id, newStatus);
+    }
   },
 
   async createLead(leadData) {
-    const response = await fetch('/api/leads', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(leadData)
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to create new lead (Status: ${response.status})`);
+    if (UseLocalStorage.isFallback) {
+      return UseLocalStorage.createLead(leadData);
     }
-    return response.json();
+    try {
+      const response = await fetch('/api/leads', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(leadData)
+      });
+      if (!response.ok) throw new Error();
+      return await response.json();
+    } catch (error) {
+      UseLocalStorage.initialize();
+      return UseLocalStorage.createLead(leadData);
+    }
   }
 };
 
