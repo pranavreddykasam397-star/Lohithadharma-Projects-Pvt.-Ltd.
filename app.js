@@ -806,6 +806,73 @@ function bindModalEvents() {
     modal.classList.add('modal-visible');
   });
 
+  // Fill demo data helper
+  const fillDemoBtn = document.getElementById('btn-fill-demo');
+  if (fillDemoBtn) {
+    fillDemoBtn.addEventListener('click', () => {
+      const demoLeads = [
+        {
+          name: "Rohan Kapoor",
+          email: "rohan.kapoor@outlook.com",
+          phone: "+91 98765 43210",
+          property: "4 BHK Luxury Penthouse",
+          location: "Worli, Mumbai",
+          budget: "28000000",
+          timeline: "Immediate (< 1 month)",
+          loan: "true",
+          agent: "Sarah Jenkins"
+        },
+        {
+          name: "Neha Deshmukh",
+          email: "neha.d@techcorp.in",
+          phone: "+91 98123 45678",
+          property: "3 BHK Apartment",
+          location: "Whitefield, Bangalore",
+          budget: "12000000",
+          timeline: "1 - 3 months",
+          loan: "true",
+          agent: "Michael Thorne"
+        },
+        {
+          name: "Vikram Malhotra",
+          email: "vikram.m@retailgroup.co.in",
+          phone: "+91 98721 48901",
+          property: "Duplex Apartment",
+          location: "Gachibowli, Hyderabad",
+          budget: "9800000",
+          timeline: "6+ months",
+          loan: "false",
+          agent: "Emma Watson"
+        },
+        {
+          name: "Priyanka Sen",
+          email: "priyanka.sen@apollo.org.in",
+          phone: "+91 99309 12840",
+          property: "Independent Villa",
+          location: "Koregaon Park, Pune",
+          budget: "55000000",
+          timeline: "1 - 3 months",
+          loan: "false",
+          agent: "Sarah Jenkins"
+        }
+      ];
+      
+      const randomLead = demoLeads[Math.floor(Math.random() * demoLeads.length)];
+      
+      document.getElementById('form-name').value = randomLead.name;
+      document.getElementById('form-email').value = randomLead.email;
+      document.getElementById('form-phone').value = randomLead.phone;
+      document.getElementById('form-property').value = randomLead.property;
+      document.getElementById('form-location').value = randomLead.location;
+      document.getElementById('form-budget').value = randomLead.budget;
+      document.getElementById('form-timeline').value = randomLead.timeline;
+      document.getElementById('form-loan').value = randomLead.loan;
+      document.getElementById('form-agent').value = randomLead.agent;
+      
+      showToast("Demo lead criteria loaded!", "info");
+    });
+  }
+
   // Close modal helper
   const closeModal = () => {
     modal.classList.remove('modal-visible');
@@ -848,10 +915,12 @@ function bindModalEvents() {
       agentAssigned
     };
 
-    const submitBtn = form.querySelector('button[type="submit"]');
-    const originalBtnText = submitBtn.textContent;
-    submitBtn.disabled = true;
-    submitBtn.textContent = "Processing AI Logic...";
+    const submitBtn = document.querySelector('button[type="submit"][form="add-lead-form"]') || form.querySelector('button[type="submit"]');
+    const originalBtnText = submitBtn ? submitBtn.textContent : "Run AI Qualification";
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Processing AI Logic...";
+    }
 
     try {
       const createdLead = await LeadsAPI.createLead(leadData);
@@ -951,8 +1020,14 @@ function generateMockAiInsights(name, propertyType, location, timeline, loanAppr
 }
 
 // Start core operations on DOM ready
-document.addEventListener('DOMContentLoaded', () => {
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    bindEvents();
+    bindModalEvents();
+    initializeDashboard();
+  });
+} else {
   bindEvents();
   bindModalEvents();
   initializeDashboard();
-});
+}
