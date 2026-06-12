@@ -705,6 +705,77 @@ function bindEvents() {
       renderLeadInspector();
     });
   }
+
+  // Refresh Button click with spin animation
+  const refreshBtn = document.getElementById('btn-refresh');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', () => {
+      // Select the SVG icon inside the button to rotate it
+      const icon = refreshBtn.querySelector('svg');
+      if (icon) icon.classList.add('animate-spin');
+      
+      initializeDashboard().finally(() => {
+        setTimeout(() => {
+          if (icon) icon.classList.remove('animate-spin');
+        }, 600);
+        showToast("Dashboard metrics refreshed!", "success");
+      });
+    });
+  }
+
+  // Export CSV Button click
+  const exportCsvBtn = document.getElementById('btn-export-csv');
+  if (exportCsvBtn) {
+    exportCsvBtn.addEventListener('click', () => {
+      const leads = AppState.filteredLeads;
+      if (leads.length === 0) {
+        showToast("No leads available to export.", "error");
+        return;
+      }
+      
+      const headers = ["ID", "Name", "Email", "Phone", "Property Type", "Location", "Budget (INR)", "AI Score", "Status", "Created At", "Timeline", "Mortgage Approved", "Assigned Agent"];
+      const rows = leads.map(l => [
+        l.id,
+        `"${l.name.replace(/"/g, '""')}"`,
+        l.email,
+        l.phone,
+        `"${l.propertyType.replace(/"/g, '""')}"`,
+        `"${l.location.replace(/"/g, '""')}"`,
+        l.budget,
+        l.aiScore,
+        l.status,
+        l.createdAt,
+        `"${l.details.timeline.replace(/"/g, '""')}"`,
+        l.details.mortgageApproved ? "Yes" : "No",
+        `"${l.details.agentAssigned.replace(/"/g, '""')}"`
+      ]);
+      
+      const csvContent = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `aegis_ai_leads_${new Date().toISOString().slice(0,10)}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      showToast(`Exported ${leads.length} leads to CSV successfully!`, "success");
+    });
+  }
+
+  // Sidebar links placeholder actions
+  const sidebarLinks = document.querySelectorAll('aside nav a');
+  sidebarLinks.forEach(link => {
+    if (link.textContent.includes("Dashboard")) return;
+    
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      const sectionName = link.textContent.replace(/Live/g, '').trim();
+      showToast(`"${sectionName}" module is under active development.`, "info");
+    });
+  });
 }
 
 function bindTableActions() {
