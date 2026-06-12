@@ -275,7 +275,7 @@ const UseLocalStorage = {
 // Define the Render backend service base URL. Replace with your actual Render API service URL once deployed!
 const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? '' // Relative path (proxied by Vite) during local development
-  : 'https://lohithadharma-projects-pvt-ltd-backend.onrender.com'; // Your production Render backend URL
+  : 'https://lohithadharma-projects-pvt-ltd.onrender.com'; // Your production Render backend URL
 
 const LeadsAPI = {
   async getAllLeads() {
