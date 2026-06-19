@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, initFirebaseSeeds } from './firebase';
-import { collection, getDocs, getDoc, doc, setDoc, updateDoc, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, getDoc, doc, setDoc, updateDoc, onSnapshot, query, orderBy, deleteDoc } from 'firebase/firestore';
 
 const API = 'http://localhost:5000';
 
@@ -171,6 +171,23 @@ export default function App() {
     } catch (err) {
       console.error(err);
       toast(`Failed to update status.`, 'error');
+    }
+  };
+
+  // ─── Delete Lead ───
+  const deleteLead = async (id) => {
+    if (!id) return;
+    if (window.confirm("Are you sure you want to delete this lead?")) {
+      try {
+        await deleteDoc(doc(db, 'leads', id));
+        toast('Lead deleted successfully.', 'success');
+        if (selId === id) {
+          setSelId(null);
+        }
+      } catch (err) {
+        console.error(err);
+        toast('Failed to delete lead: ' + err.message, 'error');
+      }
     }
   };
 
@@ -606,6 +623,7 @@ export default function App() {
                         <div className="flex gap-2 mt-3">
                           <a href={`mailto:${selLead.email}`} className="flex-1 btn-ghost text-[10px] text-center">✉ Email</a>
                           <a href={`tel:${selLead.phone}`} className="flex-1 btn-ghost text-[10px] text-center">📞 Call</a>
+                          <button onClick={() => deleteLead(selLead.id)} className="flex-1 btn-ghost text-[10px] text-center text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 border-red-200/50 dark:border-red-900/50 hover:border-red-300">🗑️ Delete</button>
                         </div>
                       </div>
 
