@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, initFirebaseSeeds } from './firebase';
 import { collection, getDocs, getDoc, doc, setDoc, updateDoc, onSnapshot, query, orderBy, deleteDoc } from 'firebase/firestore';
+import { saveRecording, getRecordings, deleteRecording } from './audioStorage';
 
 const API = 'http://localhost:5000';
 
@@ -78,6 +79,55 @@ export default function App() {
     setToasts(p => [...p, { id, msg, type }]);
     setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 4000);
   };
+
+  // ─── Local Recording Storage ───
+  const [localRecs, setLocalRecs] = useState([]);
+  const [expiredRecs, setExpiredRecs] = useState([]);
+
+  const loadLocalRecordings = async () => {
+    try {
+      const recs = await getRecordings();
+      setLocalRecs(recs);
+      const expired = recs.filter(r => {
+        const elapsed = Date.now() - r.timestamp;
+        const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+        return elapsed >= thirtyDaysMs;
+      });
+      setExpiredRecs(expired);
+      if (expired.length > 0) {
+        toast(`⚠️ You have ${expired.length} expired recording(s) that need backup.`, 'warning');
+      }
+    } catch (err) {
+      console.error("Error loading local recordings:", err);
+    }
+  };
+
+  const downloadRecording = (rec) => {
+    const link = document.createElement('a');
+    link.href = rec.data;
+    link.download = rec.name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast(`Downloaded backup: ${rec.name}`, 'success');
+  };
+
+  const removeStoredRecording = async (id) => {
+    if (window.confirm("Are you sure you want to permanently delete this local recording?")) {
+      try {
+        await deleteRecording(id);
+        toast('Local recording removed.', 'success');
+        loadLocalRecordings();
+      } catch (err) {
+        console.error(err);
+        toast('Failed to delete recording.', 'error');
+      }
+    }
+  };
+
+  useEffect(() => {
+    loadLocalRecordings();
+  }, []);
 
   // ─── Initialize Seeds & Real-time Sync ───
   useEffect(() => {
@@ -248,14 +298,33 @@ export default function App() {
   // ─── Audio File Processing ───
   const processFile = (file) => {
     if (!file) return;
+
+    // Ask for consent to store locally
+    const shouldStore = window.confirm(`Would you like to store "${file.name}" locally on your computer for 30 days? This will allow you to play and backup this recording later.`);
+
     const key = localStorage.getItem('gemini_api_key') || '';
-    if (key) {
-      toast(`Transcribing ${file.name}...`, 'info');
-      setAnalyzing(true);
-      const reader = new FileReader();
-      reader.onload = async () => {
+    toast(`Processing ${file.name}...`, 'info');
+    setAnalyzing(true);
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataURL = reader.result;
+      const b64 = dataURL.split(',')[1];
+
+      // If user accepted, save to IndexedDB
+      if (shouldStore) {
         try {
-          const b64 = reader.result.split(',')[1];
+          await saveRecording(file.name, dataURL);
+          toast('Recording saved locally for 30 days.', 'success');
+          loadLocalRecordings();
+        } catch (err) {
+          console.error("Failed to store recording:", err);
+          toast('Failed to store recording locally.', 'error');
+        }
+      }
+
+      if (key) {
+        try {
           let mime = file.type || '';
           if (!mime || mime === 'application/octet-stream') {
             const ext = file.name.split('.').pop().toLowerCase();
@@ -268,19 +337,23 @@ export default function App() {
           setTranscript(j.candidates[0].content.parts[0].text);
           setDetLang('Auto-Detected (Lohith AI)');
           toast('Transcribed!', 'success');
-        } catch { toast('Transcription failed.', 'error'); }
-        finally { setAnalyzing(false); }
-      };
-      reader.onerror = () => { toast('File read error.', 'error'); setAnalyzing(false); };
-      reader.readAsDataURL(file);
-    } else {
-      toast(`Processing ${file.name}...`, 'info');
-      setAnalyzing(true);
-      setTimeout(() => {
-        setAnalyzing(false);
-        playPreset('en-IN');
-      }, 2500);
-    }
+        } catch {
+          toast('Transcription failed.', 'error');
+        } finally {
+          setAnalyzing(false);
+        }
+      } else {
+        setTimeout(() => {
+          setAnalyzing(false);
+          playPreset('en-IN');
+        }, 1500);
+      }
+    };
+    reader.onerror = () => {
+      toast('File read error.', 'error');
+      setAnalyzing(false);
+    };
+    reader.readAsDataURL(file);
   };
 
   const onUpload = (e) => { const f = e.target.files[0]; if (f) { processFile(f); e.target.value = ''; } };
@@ -678,6 +751,39 @@ export default function App() {
                 <p className="text-xs text-app-muted mt-0.5">Upload recordings to extract lead data with Lohith AI.</p>
               </div>
 
+              {expiredRecs.length > 0 && (
+                <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs animate-slide-in">
+                  <div className="flex items-start gap-2 text-red-800 dark:text-red-300">
+                    <span className="text-base mt-0.5">⚠️</span>
+                    <div>
+                      <div className="font-bold">Backup Reminder</div>
+                      <p className="text-[11px] text-red-750 dark:text-red-400 mt-0.5">
+                        Some recordings have been stored for 30+ days. Please backup (download) them now:
+                        <span className="font-semibold block mt-1">
+                          {expiredRecs.map(r => r.name).join(', ')}
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 w-full md:w-auto justify-end">
+                    <button onClick={() => expiredRecs.forEach(r => downloadRecording(r))} className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors text-[10px] cursor-pointer">
+                      📥 Backup All
+                    </button>
+                    <button onClick={async () => {
+                      if (window.confirm("Are you sure you want to permanently clear these expired recordings?")) {
+                        for (const r of expiredRecs) {
+                          await deleteRecording(r.id);
+                        }
+                        toast("Expired recordings cleared.", "info");
+                        loadLocalRecordings();
+                      }
+                    }} className="px-3 py-1.5 border border-red-200 dark:border-red-900 bg-transparent text-red-800 dark:text-red-300 hover:bg-red-100/50 dark:hover:bg-red-950/30 font-medium rounded-lg transition-colors text-[10px] cursor-pointer">
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Upload */}
               <div className="bg-app-panel border border-app-border rounded-xl p-5 space-y-4 shadow-sm">
                 <div className="text-xs font-semibold text-app-text">Upload Recording</div>
@@ -736,6 +842,69 @@ export default function App() {
                   </div>
                 </div>
               )}
+
+              {/* Local Saved Recordings */}
+              <div className="bg-app-panel border border-app-border rounded-xl p-5 space-y-4 shadow-sm">
+                <div className="text-xs font-semibold text-app-text flex items-center justify-between">
+                  <span>💾 Local Saved Recordings</span>
+                  <span className="text-[10px] text-app-muted font-normal">Stored up to 30 days</span>
+                </div>
+
+                {localRecs.length === 0 ? (
+                  <div className="text-center py-6 text-app-muted text-xs">
+                    No recordings saved on this computer yet.
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
+                    {localRecs.map(rec => {
+                      const elapsed = Date.now() - rec.timestamp;
+                      const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+                      const remainingMs = thirtyDaysMs - elapsed;
+                      const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+                      const isExpired = remainingDays <= 0;
+
+                      return (
+                        <div key={rec.id} className={`p-3 rounded-lg border text-xs flex flex-col gap-2 ${isExpired ? 'bg-red-50/50 dark:bg-red-950/10 border-red-200 dark:border-red-900/40' : 'bg-app-input/20 border-app-border'}`}>
+                          <div className="flex justify-between items-start gap-2">
+                            <div className="min-w-0">
+                              <div className="font-semibold text-app-text truncate">{rec.name}</div>
+                              <div className="text-[10px] text-app-muted mt-0.5">
+                                Uploaded {new Date(rec.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </div>
+                            </div>
+                            <div>
+                              {isExpired ? (
+                                <span className="inline-block px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-[9px] font-bold uppercase tracking-wider animate-pulse">
+                                  Expired
+                                </span>
+                              ) : (
+                                <span className="inline-block px-1.5 py-0.5 rounded bg-app-accent/10 text-app-accent text-[9px] font-semibold">
+                                  {remainingDays}d left
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* HTML5 Audio Player */}
+                          <div className="w-full">
+                            <audio src={rec.data} controls className="w-full h-8 rounded bg-transparent" />
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="flex justify-end gap-2 mt-1">
+                            <button onClick={() => downloadRecording(rec)} className="px-2.5 py-1 text-[10px] bg-app-accent text-white font-semibold rounded hover:bg-app-accent/90 transition-colors flex items-center gap-1 cursor-pointer">
+                              📥 Backup
+                            </button>
+                            <button onClick={() => removeStoredRecording(rec.id)} className="px-2.5 py-1 text-[10px] border border-app-border text-app-text hover:bg-app-input font-medium rounded transition-colors cursor-pointer">
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </main>
