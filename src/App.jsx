@@ -83,6 +83,7 @@ export default function App() {
   // ─── Local Recording Storage ───
   const [localRecs, setLocalRecs] = useState([]);
   const [expiredRecs, setExpiredRecs] = useState([]);
+  const [settingsModal, setSettingsModal] = useState(false);
 
   const loadLocalRecordings = async () => {
     try {
@@ -568,6 +569,9 @@ export default function App() {
             <button onClick={toggleTheme} className="p-1.5 rounded-lg border border-app-border text-app-muted hover:text-app-text hover:bg-app-input transition-all text-xs cursor-pointer" title="Toggle theme">
               {theme === 'light' ? '🌙' : '☀️'}
             </button>
+            <button onClick={() => setSettingsModal(true)} className="p-1.5 rounded-lg border border-app-border text-app-muted hover:text-app-text hover:bg-app-input transition-all text-xs cursor-pointer flex items-center gap-1" title="Lohith AI Settings">
+              <span>⚙️</span> <span className="hidden sm:inline">Settings</span>
+            </button>
           </div>
         </header>
 
@@ -751,6 +755,23 @@ export default function App() {
                 <p className="text-xs text-app-muted mt-0.5">Upload recordings to extract lead data with Lohith AI.</p>
               </div>
 
+              {!apiKey && (
+                <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs animate-slide-in">
+                  <div className="flex items-start gap-2 text-amber-800 dark:text-amber-300">
+                    <span className="text-base mt-0.5">🔑</span>
+                    <div>
+                      <div className="font-bold">Gemini API Key Required</div>
+                      <p className="text-[11px] text-amber-700/90 dark:text-amber-400/90 mt-0.5">
+                        Please set your Gemini API key in settings to enable actual audio transcription. Currently running in demo mode (preset mock transcripts).
+                      </p>
+                    </div>
+                  </div>
+                  <button onClick={() => setSettingsModal(true)} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition-colors text-[10px] whitespace-nowrap cursor-pointer">
+                    Set API Key
+                  </button>
+                </div>
+              )}
+
               {expiredRecs.length > 0 && (
                 <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs animate-slide-in">
                   <div className="flex items-start gap-2 text-red-800 dark:text-red-300">
@@ -890,6 +911,13 @@ export default function App() {
                             <audio src={rec.data} controls className="w-full h-8 rounded bg-transparent" />
                           </div>
 
+                          {rec.name.toLowerCase().endsWith('.aac') && (
+                            <div className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-500/10 dark:bg-amber-500/5 p-2 rounded border border-amber-500/20 mt-0.5 flex items-start gap-1.5 leading-normal">
+                              <span>⚠️</span>
+                              <span>In-browser playback of raw .aac files is not supported by Chrome/Safari. Click <b>Backup</b> below to download and play locally, or use .mp3, .wav, or .m4a formats.</span>
+                            </div>
+                          )}
+
                           {/* Action Buttons */}
                           <div className="flex justify-end gap-2 mt-1">
                             <button onClick={() => downloadRecording(rec)} className="px-2.5 py-1 text-[10px] bg-app-accent text-white font-semibold rounded hover:bg-app-accent/90 transition-colors flex items-center gap-1 cursor-pointer">
@@ -987,6 +1015,36 @@ export default function App() {
                 <button type="button" onClick={() => { setModal(false); resetForm(); }} className="btn-ghost text-xs cursor-pointer">Cancel</button>
                 <button type="submit" form="new-lead-form" className="btn-primary text-xs cursor-pointer">Create Lead</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════ SETTINGS MODAL ══════════ */}
+      {settingsModal && (
+        <div className="fixed inset-0 bg-slate-900/50 dark:bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setSettingsModal(false)}>
+          <div className="bg-app-panel modal-card border border-app-border rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-slide-in" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
+              <h2 className="text-sm font-bold text-app-text">Lohith AI Settings</h2>
+              <button onClick={() => setSettingsModal(false)} className="text-app-muted hover:text-app-text text-lg cursor-pointer">×</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-app-text">Gemini API Key</label>
+                <input 
+                  type="password" 
+                  value={apiKey} 
+                  onChange={e => setKey(e.target.value)} 
+                  placeholder="Paste your Gemini API key (AIzaSy...)" 
+                  className="w-full bg-app-input border border-app-border rounded-lg p-2.5 text-xs text-app-text focus:outline-none focus:border-app-accent" 
+                />
+                <p className="text-[10px] text-app-muted mt-1 leading-relaxed">
+                  Required for real-time multilingual transcription of your uploaded audio. The key is stored securely in your browser's local storage and never leaves your computer.
+                </p>
+              </div>
+              <button onClick={() => { setSettingsModal(false); toast("Settings saved!", "success"); }} className="w-full btn-primary py-2.5 text-xs font-bold cursor-pointer">
+                Save & Close
+              </button>
             </div>
           </div>
         </div>
