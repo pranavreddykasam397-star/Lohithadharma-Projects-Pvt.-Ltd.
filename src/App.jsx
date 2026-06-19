@@ -912,7 +912,7 @@ export default function App() {
                           </div>
 
                           {rec.name.toLowerCase().endsWith('.aac') && (
-                            <div className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-500/10 dark:bg-amber-500/5 p-2 rounded border border-amber-500/20 mt-0.5 flex items-start gap-1.5 leading-normal">
+                            <div className="text-[10px] text-amber-800 dark:text-amber-200 bg-amber-500/10 dark:bg-amber-500/5 px-2.5 py-1.5 rounded border border-amber-500/20 mt-0.5 flex items-start gap-1.5 leading-normal">
                               <span>⚠️</span>
                               <span>In-browser playback of raw .aac files is not supported by Chrome/Safari. Click <b>Backup</b> below to download and play locally, or use .mp3, .wav, or .m4a formats.</span>
                             </div>
@@ -920,7 +920,7 @@ export default function App() {
 
                           {/* Action Buttons */}
                           <div className="flex justify-end gap-2 mt-1">
-                            <button onClick={() => downloadRecording(rec)} className="px-2.5 py-1 text-[10px] bg-app-accent text-white font-semibold rounded hover:bg-app-accent/90 transition-colors flex items-center gap-1 cursor-pointer">
+                            <button onClick={() => downloadRecording(rec)} className="px-2.5 py-1 text-[10px] font-semibold rounded hover:opacity-95 active:opacity-90 transition-opacity flex items-center gap-1 cursor-pointer" style={{ backgroundColor: 'var(--app-accent)', color: 'var(--app-accent-text)' }}>
                               📥 Backup
                             </button>
                             <button onClick={() => removeStoredRecording(rec.id)} className="px-2.5 py-1 text-[10px] border border-app-border text-app-text hover:bg-app-input font-medium rounded transition-colors cursor-pointer">
