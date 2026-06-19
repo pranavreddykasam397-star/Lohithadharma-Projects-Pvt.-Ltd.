@@ -877,59 +877,14 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
-                    {localRecs.map(rec => {
-                      const elapsed = Date.now() - rec.timestamp;
-                      const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-                      const remainingMs = thirtyDaysMs - elapsed;
-                      const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
-                      const isExpired = remainingDays <= 0;
-
-                      return (
-                        <div key={rec.id} className={`p-3 rounded-lg border text-xs flex flex-col gap-2 ${isExpired ? 'bg-red-50/50 dark:bg-red-950/10 border-red-200 dark:border-red-900/40' : 'bg-app-input/20 border-app-border'}`}>
-                          <div className="flex justify-between items-start gap-2">
-                            <div className="min-w-0">
-                              <div className="font-semibold text-app-text truncate">{rec.name}</div>
-                              <div className="text-[10px] text-app-muted mt-0.5">
-                                Uploaded {new Date(rec.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                              </div>
-                            </div>
-                            <div>
-                              {isExpired ? (
-                                <span className="inline-block px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-[9px] font-bold uppercase tracking-wider animate-pulse">
-                                  Expired
-                                </span>
-                              ) : (
-                                <span className="inline-block px-1.5 py-0.5 rounded bg-app-accent/10 text-app-accent text-[9px] font-semibold">
-                                  {remainingDays}d left
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* HTML5 Audio Player */}
-                          <div className="w-full">
-                            <audio src={rec.data} controls className="w-full h-8 rounded bg-transparent" />
-                          </div>
-
-                          {rec.name.toLowerCase().endsWith('.aac') && (
-                            <div className="text-[10px] text-amber-800 dark:text-amber-200 bg-amber-500/10 dark:bg-amber-500/5 px-2.5 py-1.5 rounded border border-amber-500/20 mt-0.5 flex items-start gap-1.5 leading-normal">
-                              <span>⚠️</span>
-                              <span>In-browser playback of raw .aac files is not supported by Chrome/Safari. Click <b>Backup</b> below to download and play locally, or use .mp3, .wav, or .m4a formats.</span>
-                            </div>
-                          )}
-
-                          {/* Action Buttons */}
-                          <div className="flex justify-end gap-2 mt-1">
-                            <button onClick={() => downloadRecording(rec)} className="px-2.5 py-1 text-[10px] font-semibold rounded hover:opacity-95 active:opacity-90 transition-opacity flex items-center gap-1 cursor-pointer" style={{ backgroundColor: 'var(--app-accent)', color: 'var(--app-accent-text)' }}>
-                              📥 Backup
-                            </button>
-                            <button onClick={() => removeStoredRecording(rec.id)} className="px-2.5 py-1 text-[10px] border border-app-border text-app-text hover:bg-app-input font-medium rounded transition-colors cursor-pointer">
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                    {localRecs.map(rec => (
+                      <LocalAudioPlayer 
+                        key={rec.id} 
+                        rec={rec} 
+                        downloadRecording={downloadRecording} 
+                        removeStoredRecording={removeStoredRecording} 
+                      />
+                    ))}
                   </div>
                 )}
               </div>
@@ -1099,4 +1054,181 @@ function parseOffline(text) {
   if (fl.includes('immediate') || fl.includes('next month')) timeline = 'Immediate (< 1 month)'; else if (fl.includes('6+')) timeline = '6+ months';
   const token_paid = fl.includes('token') || fl.includes('paid') || fl.includes('advance') || fl.includes('sorted');
   return { name, email: em ? em[0] : '', budget, location: loc, timeline, token_paid };
+}
+
+// ─── WAV Encoding Helpers ───
+function bufferToWav(buffer) {
+  const numOfChan = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const format = 1; // PCM
+  const bitDepth = 16;
+  
+  let result;
+  if (numOfChan === 2) {
+    result = interleave(buffer.getChannelData(0), buffer.getChannelData(1));
+  } else {
+    result = buffer.getChannelData(0);
+  }
+  
+  const bufferArr = new ArrayBuffer(44 + result.length * 2);
+  const view = new DataView(bufferArr);
+  
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + result.length * 2, true);
+  writeString(view, 8, 'WAVE');
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, format, true);
+  view.setUint16(22, numOfChan, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * numOfChan * (bitDepth / 8), true);
+  view.setUint16(32, numOfChan * (bitDepth / 8), true);
+  view.setUint16(34, bitDepth, true);
+  writeString(view, 36, 'data');
+  view.setUint32(40, result.length * 2, true);
+  
+  floatTo16BitPCM(view, 44, result);
+  
+  return new Blob([bufferArr], { type: 'audio/wav' });
+}
+
+function interleave(inputL, inputR) {
+  const length = inputL.length + inputR.length;
+  const result = new Float32Array(length);
+  let index = 0;
+  let inputIndex = 0;
+  
+  while (index < length) {
+    result[index++] = inputL[inputIndex];
+    result[index++] = inputR[inputIndex];
+    inputIndex++;
+  }
+  return result;
+}
+
+function floatTo16BitPCM(output, offset, input) {
+  for (let i = 0; i < input.length; i++, offset += 2) {
+    let s = Math.max(-1, Math.min(1, input[i]));
+    output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+}
+
+function writeString(view, offset, string) {
+  for (let i = 0; i < string.length; i++) {
+    view.setUint8(offset + i, string.charCodeAt(i));
+  }
+}
+
+// ─── Local Recording Player Component with WAV transcoding ───
+function LocalAudioPlayer({ rec, downloadRecording, removeStoredRecording }) {
+  const [src, setSrc] = React.useState(rec.data);
+  const [decoding, setDecoding] = React.useState(false);
+  const [error, setError] = React.useState(false);
+
+  React.useEffect(() => {
+    let active = true;
+    let url = null;
+    const isAac = rec.name.toLowerCase().endsWith('.aac');
+
+    if (isAac) {
+      setDecoding(true);
+      (async () => {
+        try {
+          const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          const base64 = rec.data.split(',')[1];
+          const binaryString = atob(base64);
+          const len = binaryString.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          
+          const audioBuffer = await audioCtx.decodeAudioData(bytes.buffer);
+          const wavBlob = bufferToWav(audioBuffer);
+          url = URL.createObjectURL(wavBlob);
+          
+          if (active) {
+            setSrc(url);
+            setDecoding(false);
+          }
+        } catch (err) {
+          console.error("AAC decoding error:", err);
+          if (active) {
+            setError(true);
+            setDecoding(false);
+          }
+        }
+      })();
+    }
+
+    return () => {
+      active = false;
+      if (url) {
+        URL.revokeObjectURL(url);
+      }
+    };
+  }, [rec]);
+
+  const isAac = rec.name.toLowerCase().endsWith('.aac');
+  const elapsed = Date.now() - rec.timestamp;
+  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+  const remainingMs = thirtyDaysMs - elapsed;
+  const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+  const isExpired = remainingDays <= 0;
+
+  return (
+    <div className={`p-3 rounded-lg border text-xs flex flex-col gap-2 ${isExpired ? 'bg-red-50/50 dark:bg-red-950/10 border-red-200 dark:border-red-900/40' : 'bg-app-input/20 border-app-border'}`}>
+      <div className="flex justify-between items-start gap-2">
+        <div className="min-w-0">
+          <div className="font-semibold text-app-text truncate">{rec.name}</div>
+          <div className="text-[10px] text-app-muted mt-0.5">
+            Uploaded {new Date(rec.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+          </div>
+        </div>
+        <div>
+          {isExpired ? (
+            <span className="inline-block px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-[9px] font-bold uppercase tracking-wider animate-pulse">
+              Expired
+            </span>
+          ) : (
+            <span className="inline-block px-1.5 py-0.5 rounded bg-app-accent/10 text-app-accent text-[9px] font-semibold">
+              {remainingDays}d left
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="w-full">
+        {decoding ? (
+          <div className="h-8 rounded bg-app-input flex items-center justify-center text-[10px] text-app-muted gap-2 border border-app-border">
+            <span className="w-3.5 h-3.5 border-2 border-app-accent border-t-transparent rounded-full animate-spin" />
+            Transcoding raw AAC to WAV for browser playback...
+          </div>
+        ) : error ? (
+          <div className="h-8 rounded bg-red-50 dark:bg-red-950/10 flex items-center justify-center text-[10px] text-red-600 dark:text-red-400 gap-1.5 border border-red-200 dark:border-red-900/40 px-2">
+            <span>⚠️</span>
+            <span className="truncate">Playback failed. Click backup to play locally.</span>
+          </div>
+        ) : (
+          <audio src={src} controls className="w-full h-8 rounded bg-transparent" />
+        )}
+      </div>
+
+      {isAac && !decoding && !error && (
+        <div className="text-[9px] text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 dark:bg-emerald-500/5 p-1 rounded border border-emerald-500/20 mt-0.5 flex items-start gap-1">
+          <span>✓</span>
+          <span>Transcoded to WAV container for browser compatibility.</span>
+        </div>
+      )}
+
+      <div className="flex justify-end gap-2 mt-1">
+        <button onClick={() => downloadRecording(rec)} className="px-2.5 py-1 text-[10px] font-semibold rounded hover:opacity-95 active:opacity-90 transition-opacity flex items-center gap-1 cursor-pointer" style={{ backgroundColor: 'var(--app-accent)', color: 'var(--app-accent-text)' }}>
+          📥 Backup
+        </button>
+        <button onClick={() => removeStoredRecording(rec.id)} className="px-2.5 py-1 text-[10px] border border-app-border text-app-text hover:bg-app-input font-medium rounded transition-colors cursor-pointer">
+          Delete
+        </button>
+      </div>
+    </div>
+  );
 }
