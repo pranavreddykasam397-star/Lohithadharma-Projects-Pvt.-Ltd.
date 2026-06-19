@@ -1,23 +1,21 @@
 {
-  "name": "real-estate-ai-lead-qualification",
+  "name": "lohithadharma-projects-dashboard",
   "version": "1.0.0",
-  "description": "Frontend foundation for Real Estate AI Lead Qualification System",
-  "main": "server.js",
+  "description": "Lohitha Dharma AI Farmland Dashboard",
+  "main": "server.py",
   "type": "module",
   "scripts": {
     "dev": "vite --port 3000 --open",
     "build": "vite build",
-    "preview": "vite preview",
-    "start": "node server.js"
+    "preview": "vite preview"
   },
   "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
     "vite": "^6.0.0"
   },
   "dependencies": {
-    "cors": "^2.8.6",
-    "express": "^5.2.1"
-  },
-  "engines": {
-    "node": "20.x"
+    "firebase": "^12.15.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   }
 }

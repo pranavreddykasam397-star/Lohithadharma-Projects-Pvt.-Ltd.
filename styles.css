@@ -1,235 +1,126 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
+@theme {
+  --color-app-bg: var(--app-bg);
+  --color-app-panel: var(--app-panel);
+  --color-app-border: var(--app-border);
+  --color-app-text: var(--app-text);
+  --color-app-muted: var(--app-muted);
+  --color-app-input: var(--app-input);
+  --color-app-accent: var(--app-accent);
+  --color-app-accent-text: var(--app-accent-text);
+  --color-sidebar: #2C2825;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Warm Cream Light Theme */
 :root {
-  /* Typography */
-  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-display: 'Outfit', var(--font-sans);
+  --app-bg: #FAF7F2;
+  --app-panel: #FFFDF8;
+  --app-border: #E8E0D8;
+  --app-text: #3D3530;
+  --app-muted: #9B918A;
+  --app-input: #F5F0EA;
+  --app-accent: #6B8F71;
+  --app-accent-text: #FFFDF8;
+}
 
-  /* Real Estate Trust Palette (Blues, Slates, Grays) */
-  --color-primary-900: #0f172a; /* Slate 900 */
-  --color-primary-800: #1e293b; /* Slate 800 */
-  --color-primary-700: #334155; /* Slate 700 */
-  --color-primary-600: #475569; /* Slate 600 */
-  --color-primary-100: #f1f5f9; /* Slate 100 */
-  --color-primary-50: #f8fafc;  /* Slate 50 */
-  
-  --color-brand-blue-700: #1d4ed8; /* Royal Blue */
-  --color-brand-blue-600: #2563eb; /* Trust Blue */
-  --color-brand-blue-500: #3b82f6; /* Accent Blue */
-  --color-brand-blue-100: #dbeafe; /* Light Blue BG */
-  --color-brand-blue-50: #eff6ff;
-  
-  /* Status Colors */
-  --color-qualified-bg: #ecfdf5; /* Soft Emerald */
-  --color-qualified-text: #047857;
-  --color-qualified-border: #a7f3d0;
-  
-  --color-warm-bg: #fffbeb; /* Soft Amber */
-  --color-warm-text: #b45309;
-  --color-warm-border: #fde68a;
-  
-  --color-cold-bg: #fff1f2; /* Soft Rose */
-  --color-cold-text: #be123c;
-  --color-cold-border: #fecdd3;
-
-  --color-contacted-bg: #f5f3ff; /* Soft Violet */
-  --color-contacted-text: #6d28d9;
-  --color-contacted-border: #ddd6fe;
-
-  --color-new-bg: #eff6ff; /* Soft Blue */
-  --color-new-text: #1d4ed8;
-  --color-new-border: #bfdbfe;
+/* Dark Theme */
+.dark {
+  --app-bg: #1C1917;
+  --app-panel: #292524;
+  --app-border: #44403C;
+  --app-text: #E7E5E4;
+  --app-muted: #A8A29E;
+  --app-input: #292524;
+  --app-accent: #C5A880;
+  --app-accent-text: #1C1917;
 }
 
 body {
   font-family: var(--font-sans);
-  background-color: var(--color-primary-50);
-  color: var(--color-primary-900);
+  background-color: var(--app-bg);
+  color: var(--app-text);
+  transition: background-color 0.3s ease, color 0.3s ease;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
 }
 
-button, select, input[type="submit"], input[type="button"], [role="button"] {
-  cursor: pointer;
-}
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #C4B8AE; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #9B918A; }
+.dark ::-webkit-scrollbar-thumb { background: #57534E; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #78716C; }
+* { scrollbar-width: thin; scrollbar-color: #C4B8AE transparent; }
 
-h1, h2, h3, h4, h5, h6, .font-display {
-  font-family: var(--font-display);
+/* Slide in */
+@keyframes slide-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
+.slide-in, .animate-slide-in { animation: slide-in 0.3s ease-out both; }
 
-/* Custom Scrollbar for Premium Feel */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
-
-/* Glassmorphism Styles */
-.glass-panel {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(226, 232, 240, 0.8);
-}
-
-.glass-navbar {
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
-}
-
-.glass-sidebar {
-  background: rgba(15, 23, 42, 0.95);
-  backdrop-filter: blur(12px);
-}
-
-/* Active Navigation Element Indicator */
-.nav-active {
-  background: linear-gradient(90deg, rgba(37, 99, 235, 0.15) 0%, rgba(37, 99, 235, 0.02) 100%);
-  border-left: 3px solid var(--color-brand-blue-600);
-  color: var(--color-brand-blue-600) !important;
-}
-
-.sidebar-nav-active {
-  background: linear-gradient(90deg, rgba(37, 99, 235, 0.2) 0%, rgba(37, 99, 235, 0.05) 100%);
-  border-left: 4px solid var(--color-brand-blue-500);
-  color: #ffffff !important;
-}
-
-/* Smooth Table Row Hovering */
-.table-row-hover {
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.table-row-hover:hover {
-  background-color: var(--color-primary-50);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-}
-
-/* Score Badge Ring Glows */
-.score-glow-high {
-  box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
-  border: 1px solid rgba(16, 185, 129, 0.4);
-}
-
-.score-glow-mid {
-  box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
-  border: 1px solid rgba(245, 158, 11, 0.4);
-}
-
-.score-glow-low {
-  box-shadow: 0 0 10px rgba(244, 63, 94, 0.2);
-  border: 1px solid rgba(244, 63, 94, 0.4);
-}
-
-/* Tooltip Styling */
-.tooltip-trigger:hover .tooltip-content {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
-}
-
-/* Shimmer animation for loading states */
+/* Shimmer */
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
-
-.shimmer-loading {
-  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+.shimmer {
+  background: linear-gradient(90deg, var(--app-input) 25%, var(--app-border) 50%, var(--app-input) 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer 1.5s ease-in-out infinite;
 }
 
-/* Badge Styling */
-.badge-status {
-  padding: 0.25rem 0.625rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 600;
+/* Buttons */
+.btn-primary {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  border: 1px solid transparent;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.25rem;
+  background-color: var(--app-accent);
+  color: var(--app-accent-text);
+  font-weight: 600;
+  font-size: 0.875rem;
+  border-radius: 0.5rem;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-primary:hover { filter: brightness(0.9); }
+.btn-primary:active { filter: brightness(0.85); }
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.25rem;
+  background-color: transparent;
+  color: var(--app-text);
+  font-weight: 500;
+  font-size: 0.875rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--app-border);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-ghost:hover { background-color: var(--app-input); }
+
+/* Fix select dropdown option readability in both themes */
+select option {
+  background-color: var(--app-panel);
+  color: var(--app-text);
 }
 
-.badge-status.qualified {
-  background-color: var(--color-qualified-bg);
-  color: var(--color-qualified-text);
-  border-color: var(--color-qualified-border);
+/* Ensure modal card background is completely solid and opaque */
+.modal-card {
+  background-color: var(--app-panel) !important;
 }
 
-.badge-status.warm {
-  background-color: var(--color-warm-bg);
-  color: var(--color-warm-text);
-  border-color: var(--color-warm-border);
+/* Ensure inputs, select, and textarea have solid backgrounds */
+input, select, textarea {
+  background-color: var(--app-input) !important;
 }
-
-.badge-status.cold {
-  background-color: var(--color-cold-bg);
-  color: var(--color-cold-text);
-  border-color: var(--color-cold-border);
-}
-
-.badge-status.contacted {
-  background-color: var(--color-contacted-bg);
-  color: var(--color-contacted-text);
-  border-color: var(--color-contacted-border);
-}
-
-.badge-status.new {
-  background-color: var(--color-new-bg);
-  color: var(--color-new-text);
-  border-color: var(--color-new-border);
-}
-
-/* Pulse indicator for active/live elements */
-.pulse-indicator {
-  position: relative;
-}
-.pulse-indicator::after {
-  content: '';
-  position: absolute;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: #10b981;
-  top: 0;
-  right: 0;
-  animation: pulse-ring 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-@keyframes pulse-ring {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-}
-
-/* Modal Transition Styles */
-#add-lead-modal.modal-visible {
-  opacity: 1 !important;
-  pointer-events: auto !important;
-}
-
-#add-lead-modal.modal-visible #add-lead-modal-panel {
-  transform: scale(1) !important;
-}
-
-/* Toast Notifications styling */
-.toast-card {
-  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.03), 0 0 0 1px rgba(0, 0, 0, 0.02);
-}
-
