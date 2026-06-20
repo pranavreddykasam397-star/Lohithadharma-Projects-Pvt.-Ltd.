@@ -247,6 +247,10 @@ export default function App() {
     e.preventDefault();
     try {
       const budgetVal = parseInt(form.budget || 0);
+      if (budgetVal < 0) {
+        toast('Budget cannot be negative.', 'warning');
+        return;
+      }
       const sc = calcScore(form.timeline, form.token_paid, budgetVal);
       const st = sc >= 80 ? 'Qualified' : sc >= 60 ? 'Warm' : 'Cold';
       const leadId = `LD-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -422,19 +426,20 @@ export default function App() {
     if (!extracted) return;
     setSaving(true);
     const leadId = `LD-${Math.floor(1000 + Math.random() * 9000)}`;
+    const budgetVal = Math.max(0, parseInt(extracted.budget || 0));
     const pay = { 
       id: leadId,
       name: extracted.name, 
       email: extracted.email || 'investor@lohithadharma.com', 
       phone: '+91 98765 43210', 
-      plot_type: plotFromBudget(extracted.budget), 
+      plot_type: plotFromBudget(budgetVal), 
       location: extracted.location, 
-      budget: extracted.budget, 
+      budget: budgetVal, 
       timeline: extracted.timeline, 
       token_paid: extracted.token_paid 
     };
     try {
-      const sc = calcScore(extracted.timeline, extracted.token_paid, extracted.budget);
+      const sc = calcScore(extracted.timeline, extracted.token_paid, budgetVal);
       const st = sc >= 80 ? 'Qualified' : sc >= 60 ? 'Warm' : 'Cold';
       const payload = {
         ...pay,
@@ -909,11 +914,11 @@ export default function App() {
                 { label: 'Full Name', key: 'name', type: 'text', required: true },
                 { label: 'Email', key: 'email', type: 'email', required: true },
                 { label: 'Phone', key: 'phone', type: 'tel' },
-                { label: 'Budget (₹)', key: 'budget', type: 'number', required: true },
+                { label: 'Budget (₹)', key: 'budget', type: 'number', required: true, min: 0 },
               ].map(f => (
                 <div key={f.key}>
                   <label className="text-[10px] font-semibold text-app-muted uppercase tracking-wider block mb-1">{f.label}</label>
-                  <input type={f.type} required={f.required} value={form[f.key]} onChange={e => setForm({ ...form, [f.key]: e.target.value })} className="w-full px-3 py-2 bg-app-input border border-app-border rounded-lg text-xs text-app-text focus:outline-none focus:border-app-accent" />
+                  <input type={f.type} required={f.required} min={f.min !== undefined ? f.min : undefined} value={form[f.key]} onChange={e => setForm({ ...form, [f.key]: e.target.value })} className="w-full px-3 py-2 bg-app-input border border-app-border rounded-lg text-xs text-app-text focus:outline-none focus:border-app-accent" />
                 </div>
               ))}
               <div className="grid grid-cols-2 gap-3">
