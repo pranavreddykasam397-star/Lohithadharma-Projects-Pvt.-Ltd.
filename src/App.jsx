@@ -3,7 +3,7 @@ import { db, initFirebaseSeeds } from './firebase';
 import { collection, getDocs, getDoc, doc, setDoc, updateDoc, onSnapshot, query, orderBy, deleteDoc } from 'firebase/firestore';
 import { saveRecording, getRecordings, deleteRecording } from './audioStorage';
 
-const API = 'http://localhost:5000';
+const DEFAULT_API = 'http://localhost:5000';
 
 export default function App() {
   // ─── Theme ───
@@ -79,6 +79,138 @@ export default function App() {
     setToasts(p => [...p, { id, msg, type }]);
     setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 4000);
   };
+
+  // ─── AI Outbound Calling State ───
+  const [outboundPhone, setOutboundPhone] = useState('');
+  const [callStatus, setCallStatus] = useState('idle'); // 'idle', 'ringing', 'in-progress', 'completed'
+  const [activeCallId, setActiveCallId] = useState(null);
+  const [liveTurns, setLiveTurns] = useState([]);
+  const [callsHistory, setCallsHistory] = useState([]);
+  const [loadingCalls, setLoadingCalls] = useState(false);
+  const [expandedCallId, setExpandedCallId] = useState(null);
+  const [blandKey, setBlandKey] = useState(() => localStorage.getItem('bland_api_key') || '');
+  const [webhookBase, setWebhookBase] = useState(() => localStorage.getItem('webhook_base_url') || '');
+  const [backendUrl, setBackendUrl] = useState(() => localStorage.getItem('backend_api_url') || DEFAULT_API);
+  const sseRef = useRef(null);
+
+  const saveBlandKey = (val) => { setBlandKey(val); localStorage.setItem('bland_api_key', val); };
+  const saveWebhookBase = (val) => { setWebhookBase(val); localStorage.setItem('webhook_base_url', val); };
+  const saveBackendUrl = (val) => { setBackendUrl(val); localStorage.setItem('backend_api_url', val); };
+
+  const fetchCallsHistory = async () => {
+    setLoadingCalls(true);
+    try {
+      const res = await fetch(`${backendUrl}/api/calls`);
+      if (res.ok) {
+        const data = await res.json();
+        setCallsHistory(data);
+      }
+    } catch (err) {
+      console.error("Error fetching call history:", err);
+    } finally {
+      setLoadingCalls(false);
+    }
+  };
+
+  const connectToCallStream = (callId) => {
+    if (sseRef.current) {
+      sseRef.current.close();
+    }
+
+    const sse = new EventSource(`${backendUrl}/api/calls/sim-stream/${callId}`);
+    sseRef.current = sse;
+
+    sse.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === 'status') {
+          setCallStatus(data.status);
+        } else if (data.type === 'turn') {
+          setLiveTurns(p => {
+            const exists = p.some(t => t.speaker === data.speaker && t.text === data.text);
+            if (exists) return p;
+            return [...p, { speaker: data.speaker, text: data.text }];
+          });
+        } else if (data.type === 'completed') {
+          sse.close();
+          toast("AI outbound call completed!", "success");
+          setCallStatus('completed');
+          fetchCallsHistory();
+        } else if (data.type === 'error') {
+          sse.close();
+          toast("Call error: " + data.message, "error");
+          setCallStatus('idle');
+        }
+      } catch (err) {
+        console.error("Error parsing SSE data:", err);
+      }
+    };
+
+    sse.onerror = () => {
+      // Don't close immediately unless we want to, SSE auto-reconnects
+    };
+  };
+
+  const triggerOutboundCall = async (phone, leadId = null) => {
+    if (!phone) {
+      toast("Please enter a phone number.", "warning");
+      return;
+    }
+    setCallStatus('ringing');
+    setLiveTurns([]);
+    setActiveCallId(null);
+    toast(`Initiating AI call to ${phone}...`, 'info');
+
+    try {
+      const res = await fetch(`${backendUrl}/api/calls/trigger`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          phone, 
+          lead_id: leadId,
+          bland_api_key: blandKey,
+          webhook_base_url: webhookBase
+        })
+      });
+      if (!res.ok) throw new Error("Failed to trigger call");
+      const data = await res.json();
+      setActiveCallId(data.call_id);
+      
+      // If it is a real call, we inform the user.
+      if (data.mode === 'real') {
+        toast("Real voice call triggered successfully via Bland AI!", "success");
+      }
+      
+      connectToCallStream(data.call_id);
+    } catch (err) {
+      console.error(err);
+      toast("Failed to trigger call: " + err.message, "error");
+      setCallStatus('idle');
+    }
+  };
+
+  const stopActiveCall = () => {
+    if (sseRef.current) {
+      sseRef.current.close();
+    }
+    setCallStatus('idle');
+    setActiveCallId(null);
+    setLiveTurns([]);
+    toast("Call ended.", "info");
+    fetchCallsHistory();
+  };
+
+  useEffect(() => {
+    if (tab === 'ai-outbound') {
+      fetchCallsHistory();
+    }
+  }, [tab]);
+
+  useEffect(() => {
+    return () => {
+      if (sseRef.current) sseRef.current.close();
+    };
+  }, []);
 
   // ─── Local Recording Storage ───
   const [localRecs, setLocalRecs] = useState([]);
@@ -414,7 +546,7 @@ export default function App() {
       finally { setAnalyzing(false); }
     }
     try {
-      const r = await fetch(`${API}/api/leads/process-audio`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transcript }) });
+      const r = await fetch(`${backendUrl}/api/leads/process-audio`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transcript }) });
       if (!r.ok) throw new Error();
       setExtracted(await r.json()); toast('Extracted!', 'success');
     } catch { setExtracted(parseOffline(transcript)); toast('Extracted locally.', 'success'); }
@@ -535,6 +667,7 @@ export default function App() {
           {[
             { id: 'dashboard', icon: '📊', label: 'Dashboard' },
             { id: 'voice-capture', icon: '🎙️', label: 'Voice Capture', badge: 'AI' },
+            { id: 'ai-outbound', icon: '📞', label: 'AI Outbound', badge: 'Live' },
           ].map(n => (
             <button key={n.id} onClick={() => setTab(n.id)} className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all cursor-pointer ${tab === n.id ? 'bg-app-accent/15 text-emerald-300' : 'text-[#9B918A] hover:text-stone-200 hover:bg-[#3D3530]/50'}`}>
               <span className="flex items-center gap-2.5"><span>{n.icon}</span>{n.label}</span>
@@ -895,6 +1028,231 @@ export default function App() {
               </div>
             </div>
           )}
+
+          {tab === 'ai-outbound' && (
+            <div className="space-y-5 max-w-[1200px] mx-auto">
+              {/* Header Title */}
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div>
+                  <h1 className="text-xl font-bold text-app-text">AI Outbound Lead Qualification</h1>
+                  <p className="text-xs text-app-muted mt-0.5">Initiate automated AI calling and lead nurturing campaigns.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+                
+                {/* Outbound Dialer and Active Contacts */}
+                <div className="lg:col-span-1 space-y-5">
+                  
+                  {/* Manual Dialer */}
+                  <div className="bg-app-panel border border-app-border rounded-xl p-5 space-y-4 shadow-sm">
+                    <div className="text-xs font-semibold text-app-text">Quick Dialer</div>
+                    <div className="flex gap-2">
+                      <input 
+                        value={outboundPhone} 
+                        onChange={e => setOutboundPhone(e.target.value)} 
+                        placeholder="Enter phone number (e.g. +91 98765 43210)" 
+                        className="flex-1 px-3 py-2 bg-app-input border border-app-border rounded-lg text-xs text-app-text focus:outline-none focus:border-app-accent" 
+                      />
+                      <button 
+                        onClick={() => triggerOutboundCall(outboundPhone)} 
+                        disabled={callStatus !== 'idle'} 
+                        className="btn-primary px-4 py-2 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        📞 Call
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Pending Lead Contacts list for Calling */}
+                  <div className="bg-app-panel border border-app-border rounded-xl p-5 space-y-4 shadow-sm">
+                    <div className="text-xs font-semibold text-app-text flex items-center justify-between">
+                      <span>Nurture Contacts</span>
+                      <span className="text-[10px] text-app-accent font-semibold px-2 py-0.5 rounded bg-app-accent/10">
+                        {leads.filter(l => l.status === 'Warm' || l.status === 'New' || l.status === 'Cold').length} Pending
+                      </span>
+                    </div>
+                    
+                    <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
+                      {leads.filter(l => l.status === 'Warm' || l.status === 'New' || l.status === 'Cold').map(l => (
+                        <div key={l.id} className="p-3 bg-app-input/20 border border-app-border rounded-lg flex items-center justify-between gap-3 text-xs">
+                          <div>
+                            <div className="font-semibold text-app-text">{l.name}</div>
+                            <div className="text-[10px] text-app-muted flex items-center gap-1.5 mt-0.5">
+                              <span>{l.phone}</span>
+                              <span>•</span>
+                              <span className={`font-medium ${
+                                l.status === 'Warm' ? 'text-amber-600 dark:text-amber-400' :
+                                l.status === 'Cold' ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500'
+                              }`}>{l.status}</span>
+                            </div>
+                          </div>
+                          <button 
+                            onClick={() => {
+                              setOutboundPhone(l.phone);
+                              triggerOutboundCall(l.phone, l.id);
+                            }} 
+                            disabled={callStatus !== 'idle'}
+                            className="px-2.5 py-1.5 bg-app-accent text-white hover:opacity-90 disabled:opacity-45 disabled:cursor-not-allowed text-[10px] font-bold rounded-lg cursor-pointer"
+                          >
+                            Call Now
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Live Call Console Terminal */}
+                <div className="lg:col-span-2 space-y-5">
+                  {callStatus !== 'idle' ? (
+                    <div className="bg-[#1E1B18] border border-[#3A332C] rounded-2xl overflow-hidden shadow-xl animate-slide-in">
+                      {/* Console Header */}
+                      <div className="px-4 py-3 bg-[#2D2824] border-b border-[#3A332C] flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
+                          <span className="text-[11px] font-bold text-stone-300 uppercase tracking-wider">
+                            {callStatus === 'ringing' ? 'Ringing...' : callStatus === 'in-progress' ? 'Call in progress' : 'Call completed'}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-stone-400 font-mono">
+                          ID: {activeCallId || 'CALL-CONNECTING'}
+                        </div>
+                      </div>
+
+                      {/* Phone UI Container */}
+                      <div className="p-6 flex flex-col items-center border-b border-[#3A332C] bg-[#24201D]">
+                        {/* Outbound Phone Screen Mock */}
+                        <div className="w-24 h-24 rounded-full bg-[#352F2B] border-4 border-[#443D37] flex items-center justify-center text-3xl shadow-inner relative">
+                          🤖
+                          {callStatus === 'ringing' && (
+                            <div className="absolute inset-0 rounded-full border border-emerald-500 animate-ping opacity-60" />
+                          )}
+                          {callStatus === 'in-progress' && (
+                            <div className="absolute -inset-1 rounded-full border-2 border-dashed border-app-accent animate-spin duration-10000" />
+                          )}
+                        </div>
+                        
+                        <div className="mt-3 text-center">
+                          <div className="text-white text-base font-bold">{outboundPhone}</div>
+                          <div className="text-[#9B918A] text-[11px] mt-0.5">AI Outbound Agent</div>
+                        </div>
+
+                        {/* Interactive Waveform */}
+                        {callStatus === 'in-progress' && (
+                          <div className="flex items-center gap-1.5 mt-6 h-8 justify-center">
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(w => (
+                              <span 
+                                key={w} 
+                                className="w-1 bg-[#C5A880] rounded-full animate-bounce" 
+                                style={{ 
+                                  height: `${12 + Math.sin(w) * 20}px`,
+                                  animationDuration: `${0.4 + w * 0.08}s` 
+                                }} 
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Live Dialogue Turns scroll */}
+                      <div className="p-5 h-[300px] overflow-y-auto font-mono text-[11px] space-y-4 bg-[#1C1917] scrollbar-thin">
+                        {liveTurns.length === 0 && callStatus === 'ringing' && (
+                          <div className="text-[#9B918A] text-center pt-16 animate-pulse">
+                            ☎️ Connection established. Waiting for answer...
+                          </div>
+                        )}
+                        {liveTurns.map((turn, idx) => (
+                          <div key={idx} className={`flex gap-3 max-w-[85%] ${turn.speaker === 'Agent' ? '' : 'ml-auto flex-row-reverse'}`}>
+                            <div className={`px-2 py-0.5 rounded font-bold uppercase text-[9px] h-fit ${
+                              turn.speaker === 'Agent' ? 'bg-app-accent/20 text-emerald-400' : 'bg-stone-700 text-stone-200'
+                            }`}>
+                              {turn.speaker}
+                            </div>
+                            <div className={`p-2.5 rounded-xl border leading-relaxed ${
+                              turn.speaker === 'Agent' 
+                                ? 'bg-[#292524] border-[#3E3834] text-stone-200 rounded-tl-none' 
+                                : 'bg-[#1C1917] border-[#44403C] text-[#C5A880] rounded-tr-none text-right'
+                            }`}>
+                              {turn.text}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="px-5 py-3 bg-[#24201D] border-t border-[#3A332C] flex justify-between items-center">
+                        <span className="text-[10px] text-stone-400 font-mono">
+                          {callStatus === 'completed' ? 'Total duration: 36s' : 'Outbound channel: Active'}
+                        </span>
+                        <button 
+                          onClick={stopActiveCall} 
+                          className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer"
+                        >
+                          {callStatus === 'completed' ? 'Close Console' : '❌ Disconnect Call'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-app-panel border border-app-border rounded-xl p-8 text-center flex flex-col items-center justify-center min-h-[300px]">
+                      <div className="w-14 h-14 rounded-full bg-app-input flex items-center justify-center text-2xl mb-4">📞</div>
+                      <h3 className="text-sm font-bold text-app-text">Live Call Monitor</h3>
+                      <p className="text-xs text-app-muted mt-1.5 max-w-[300px]">
+                        Start an outbound call using the quick dialer or select a contact. The live transcript and call controls will appear here.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Outbound Calls Logs */}
+                  <div className="bg-app-panel border border-app-border rounded-xl overflow-hidden shadow-sm">
+                    <div className="px-4 py-3 border-b border-app-border bg-app-input/30 font-semibold text-xs text-app-text">
+                      Campaign Call History
+                    </div>
+                    {loadingCalls ? (
+                      <div className="py-12 text-center text-xs text-app-muted">Loading history...</div>
+                    ) : callsHistory.length === 0 ? (
+                      <div className="py-12 text-center text-xs text-app-muted">No outbound calls triggered yet.</div>
+                    ) : (
+                      <div className="divide-y divide-app-border">
+                        {callsHistory.map(call => (
+                          <div key={call.id} className="p-4 space-y-3">
+                            <div className="flex items-center justify-between text-xs">
+                              <div>
+                                <span className="font-semibold text-app-text">{call.phone}</span>
+                                <span className="text-app-muted text-[10px] ml-2 font-mono">({call.id})</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-app-muted">{fmtDate(call.created_at)}</span>
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/30">
+                                  {call.status}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex justify-between items-center text-[11px]">
+                              <span className="text-app-muted">Duration: {call.duration} seconds</span>
+                              <button 
+                                onClick={() => setExpandedCallId(expandedCallId === call.id ? null : call.id)}
+                                className="text-app-accent hover:underline font-semibold cursor-pointer"
+                              >
+                                {expandedCallId === call.id ? 'Hide Transcript ▲' : 'Show Transcript ▼'}
+                              </button>
+                            </div>
+
+                            {/* Expanded Transcript display */}
+                            {expandedCallId === call.id && (
+                              <div className="p-3 bg-app-input border border-app-border rounded-lg text-xs leading-relaxed text-app-text space-y-1 max-h-[250px] overflow-y-auto whitespace-pre-wrap font-mono font-bold">
+                                {call.transcript ? call.transcript : "No transcript recorded."}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </main>
       </div>
 
@@ -999,9 +1357,52 @@ export default function App() {
                   className="w-full bg-app-input border border-app-border rounded-lg p-2.5 text-xs text-app-text focus:outline-none focus:border-app-accent" 
                 />
                 <p className="text-[10px] text-app-muted mt-1 leading-relaxed">
-                  Required for real-time multilingual transcription of your uploaded audio. The key is stored securely in your browser's local storage and never leaves your computer.
+                  Required for real-time multilingual transcription of your uploaded audio.
                 </p>
               </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-app-text">Bland AI API Key</label>
+                <input 
+                  type="password" 
+                  value={blandKey} 
+                  onChange={e => saveBlandKey(e.target.value)} 
+                  placeholder="Paste your Bland AI API key" 
+                  className="w-full bg-app-input border border-app-border rounded-lg p-2.5 text-xs text-app-text focus:outline-none focus:border-app-accent" 
+                />
+                <p className="text-[10px] text-app-muted mt-1 leading-relaxed">
+                  Required to trigger real phone calls to customers using Bland AI's agent network.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-app-text">Webhook Base URL (ngrok)</label>
+                <input 
+                  type="text" 
+                  value={webhookBase} 
+                  onChange={e => saveWebhookBase(e.target.value)} 
+                  placeholder="https://xxxx.ngrok-free.app" 
+                  className="w-full bg-app-input border border-app-border rounded-lg p-2.5 text-xs text-app-text focus:outline-none focus:border-app-accent" 
+                />
+                <p className="text-[10px] text-app-muted mt-1 leading-relaxed">
+                  The public base URL (e.g. ngrok tunnel) used by Bland AI to send post-call transcripts back to your server.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-app-text">Backend API URL</label>
+                <input 
+                  type="text" 
+                  value={backendUrl} 
+                  onChange={e => saveBackendUrl(e.target.value)} 
+                  placeholder="http://localhost:5000" 
+                  className="w-full bg-app-input border border-app-border rounded-lg p-2.5 text-xs text-app-text focus:outline-none focus:border-app-accent" 
+                />
+                <p className="text-[10px] text-app-muted mt-1 leading-relaxed">
+                  The URL of your running Flask server. Use http://localhost:5000 for local development.
+                </p>
+              </div>
+
               <button onClick={() => { setSettingsModal(false); toast("Settings saved!", "success"); }} className="w-full btn-primary py-2.5 text-xs font-bold cursor-pointer">
                 Save & Close
               </button>

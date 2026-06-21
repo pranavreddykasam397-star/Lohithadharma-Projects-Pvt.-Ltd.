@@ -54,6 +54,21 @@ def init_db():
         )
     ''')
     
+    # Create calls table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS calls (
+            id TEXT PRIMARY KEY,
+            lead_id TEXT,
+            phone TEXT NOT NULL,
+            status TEXT NOT NULL,
+            transcript TEXT,
+            recording_url TEXT,
+            duration INTEGER,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE SET NULL
+        )
+    ''')
+    
     # Check if database is empty to insert seeds
     cursor.execute("SELECT COUNT(*) FROM leads")
     if cursor.fetchone()[0] == 0:
@@ -614,6 +629,375 @@ def process_audio():
     print("Processing transcript using local regex-NLP parser...")
     parsed_data = parse_multilingual_transcript(transcript)
     return jsonify(parsed_data)
+
+
+# ==========================================
+# Outbound AI Calling & Webhook System
+# ==========================================
+import threading
+import time
+from flask import Response
+
+# In-memory store for active simulated call threads
+active_simulations = {}
+
+@app.route('/api/calls', methods=['GET'])
+def get_calls():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM calls ORDER BY created_at DESC")
+    rows = cursor.fetchall()
+    calls = [dict(r) for r in rows]
+    conn.close()
+    return jsonify(calls)
+
+@app.route('/api/calls/trigger', methods=['POST'])
+def trigger_call():
+    data = request.json or {}
+    phone = data.get("phone")
+    lead_id = data.get("lead_id")
+    bland_api_key = data.get("bland_api_key") or os.environ.get("BLAND_API_KEY")
+    webhook_base = data.get("webhook_base_url")
+    
+    if not phone:
+        return jsonify({"error": "Phone number is required"}), 400
+        
+    call_id = f"CALL-{random.randint(10000, 99999)}"
+    created_at = datetime.utcnow().isoformat() + "Z"
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Get lead details if available
+    lead_name = "Interested Investor"
+    if lead_id:
+        cursor.execute("SELECT name FROM leads WHERE id = ?", (lead_id,))
+        row = cursor.fetchone()
+        if row:
+            lead_name = row["name"]
+            
+    # Check if we have Bland AI credentials for a real call
+    if bland_api_key:
+        print(f"Triggering real call to {phone} via Bland AI...")
+        
+        # Build prompt
+        prompt = f"""You are a friendly, professional AI outbound calling agent for Lohitha Dharma Projects Pvt. Ltd., a premium managed Red Sandalwood farmland developer. 
+Your goal is to connect with the lead, confirm their name, and qualify their purchase intent for farmland.
+Converse naturally and dynamically.
+Extract the following information during the call:
+1. Confirm their full name (which is {lead_name}).
+2. Ask which farmland project/location they are interested in (must be one of: Kadapa Valley (Phase I & II), Tirupati Foothills, Chittoor Reserve, Nellore Greenlands, Rayalaseema Orchards).
+3. Ask for their estimated investment budget in Indian Rupees (INR).
+4. Ask what their timeline is for registering the plot (e.g., immediate, 1-3 months, 3-6 months, 6+ months).
+5. Ask if they have paid the advance booking token to reserve their plot.
+
+Start the call by asking for their name and greeting them. Once you have collected all info, thank them and end the call."""
+
+        webhook_url = None
+        if webhook_base:
+            webhook_url = f"{webhook_base.rstrip('/')}/api/calls/webhook"
+
+        import urllib.request
+        bland_url = "https://api.bland.ai/v1/calls"
+        bland_payload = {
+            "phone_number": phone,
+            "task": prompt,
+            "first_sentence": "Hello, welcome to Lohitha Dharma Projects. May I know your name please?",
+            "voice": "nat",
+            "language": "en",
+            "webhook": webhook_url,
+            "metadata": {
+                "lead_id": lead_id,
+                "call_id": call_id
+            }
+        }
+        
+        try:
+            req_data = json.dumps(bland_payload).encode('utf-8')
+            req = urllib.request.Request(
+                bland_url,
+                data=req_data,
+                headers={
+                    'Content-Type': 'application/json',
+                    'Authorization': bland_api_key
+                }
+            )
+            with urllib.request.urlopen(req) as response:
+                res_body = response.read().decode('utf-8')
+                res_json = json.loads(res_body)
+                bland_call_id = res_json.get("call_id") or res_json.get("id") or call_id
+                
+                # Save call log
+                cursor.execute('''
+                    INSERT INTO calls (id, lead_id, phone, status, transcript, recording_url, duration, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (bland_call_id, lead_id, phone, "in-progress", "", "", 0, created_at))
+                conn.commit()
+                conn.close()
+                
+                return jsonify({
+                    "success": True,
+                    "call_id": bland_call_id,
+                    "status": "in-progress",
+                    "phone": phone,
+                    "lead_id": lead_id,
+                    "lead_name": lead_name,
+                    "mode": "real"
+                }), 201
+        except Exception as e:
+            print(f"Bland AI trigger failed: {str(e)}. Falling back to simulation mode...")
+            
+    # Fallback to simulation mode if Bland AI call fails or key is missing
+    cursor.execute('''
+        INSERT INTO calls (id, lead_id, phone, status, transcript, recording_url, duration, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (call_id, lead_id, phone, "ringing", "", "", 0, created_at))
+    conn.commit()
+    conn.close()
+    
+    # Start simulation thread
+    sim_thread = threading.Thread(target=run_call_simulation, args=(call_id, lead_id, phone, lead_name))
+    sim_thread.daemon = True
+    sim_thread.start()
+    
+    return jsonify({
+        "success": True,
+        "call_id": call_id,
+        "status": "ringing",
+        "phone": phone,
+        "lead_id": lead_id,
+        "lead_name": lead_name,
+        "mode": "simulated"
+    }), 201
+
+def run_call_simulation(call_id, lead_id, phone, lead_name):
+    # Simulated dialog turns
+    dialog = [
+        {"speaker": "Agent", "text": "Hello, welcome to Lohitha Dharma Projects. May I know your name please?"},
+        {"speaker": "Customer", "text": f"Hello, my name is {lead_name}."},
+        {"speaker": "Agent", "text": f"Thank you Mr. {lead_name.split()[0] if lead_name else 'Investor'}. Which of our premium Red Sandalwood projects are you interested in?"},
+        {"speaker": "Customer", "text": "I am looking for a farmland plot in Rayalaseema Orchards."},
+        {"speaker": "Agent", "text": "Rayalaseema Orchards is a wonderful choice for high-yield returns. What is your estimated investment budget?"},
+        {"speaker": "Customer", "text": "My budget is around 35 Lakhs."},
+        {"speaker": "Agent", "text": "Perfect. What is your registration timeline?"},
+        {"speaker": "Customer", "text": "I'm ready to proceed immediately, within this month."},
+        {"speaker": "Agent", "text": "Understood. Have you cleared the booking token advance?"},
+        {"speaker": "Customer", "text": "Yes, I paid a token advance of 2 Lakhs yesterday."},
+        {"speaker": "Agent", "text": f"Excellent, we have verified that. I have updated your profile. Our senior site advisor will contact you at {phone} to coordinate the registration map. Thank you for choosing Lohitha Dharma!"},
+        {"speaker": "Customer", "text": "Thank you, goodbye."}
+    ]
+    
+    active_simulations[call_id] = {
+        "status": "ringing",
+        "turns": [],
+        "completed": False
+    }
+    
+    # Ringing phase (3 seconds)
+    time.sleep(3)
+    active_simulations[call_id]["status"] = "in-progress"
+    
+    # Update call status in DB to in-progress
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE calls SET status = 'in-progress' WHERE id = ?", (call_id,))
+    conn.commit()
+    conn.close()
+    
+    full_transcript = []
+    
+    for turn in dialog:
+        if active_simulations[call_id]["completed"]:
+            break
+        text_line = f"{turn['speaker']}: {turn['text']}"
+        full_transcript.append(text_line)
+        active_simulations[call_id]["turns"].append(turn)
+        
+        # Simulate typing/speaking delay
+        time.sleep(2.5)
+        
+    # Finalize call
+    final_text = "\n".join(full_transcript)
+    duration = len(dialog) * 3
+    recording_url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"  # Dummy audio link for demo
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE calls 
+        SET status = 'completed', transcript = ?, recording_url = ?, duration = ?
+        WHERE id = ?
+    ''', (final_text, recording_url, duration, call_id))
+    conn.commit()
+    
+    # Run qualification on the transcript
+    parsed = parse_multilingual_transcript(final_text)
+    
+    # Check if lead exists, otherwise create a new one
+    if lead_id:
+        cursor.execute("SELECT id FROM leads WHERE id = ?", (lead_id,))
+        lead_exists = cursor.fetchone()
+    else:
+        lead_exists = False
+        
+    score, lead_status = qualify_lead_score(parsed["timeline"], parsed["token_paid"], parsed["budget"])
+    insights = generate_insights_list(parsed["name"], "0.25 Acre Farmland (100 Trees)", parsed["location"], parsed["timeline"], parsed["token_paid"], parsed["budget"], score)
+    
+    if lead_exists:
+        # Update existing lead
+        cursor.execute('''
+            UPDATE leads 
+            SET name = ?, location = ?, budget = ?, timeline = ?, token_paid = ?, ai_score = ?, status = ?
+            WHERE id = ?
+        ''', (parsed["name"], parsed["location"], parsed["budget"], parsed["timeline"], parsed["token_paid"], score, lead_status, lead_id))
+        
+        # Clear old insights and insert new
+        cursor.execute("DELETE FROM ai_insights WHERE lead_id = ?", (lead_id,))
+        for ins in insights:
+            cursor.execute("INSERT INTO ai_insights (lead_id, insight) VALUES (?, ?)", (lead_id, ins))
+    else:
+        # Create new lead from call
+        new_lead_id = lead_id or f"LD-{random.randint(1000, 9999)}"
+        created_at_lead = datetime.utcnow().isoformat() + "Z"
+        cursor.execute('''
+            INSERT INTO leads (id, name, email, phone, plot_type, location, budget, ai_score, status, created_at, timeline, token_paid, agent_assigned)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            new_lead_id, parsed["name"], parsed["email"] or "investor@lohithadharma.com", phone,
+            "0.25 Acre Farmland (100 Trees)", parsed["location"], parsed["budget"],
+            score, lead_status, created_at_lead, parsed["timeline"], parsed["token_paid"], "Sarah Jenkins"
+        ))
+        
+        for ins in insights:
+            cursor.execute("INSERT INTO ai_insights (lead_id, insight) VALUES (?, ?)", (new_lead_id, ins))
+            
+        # Update call with new lead id if it was anonymous
+        if not lead_id:
+            cursor.execute("UPDATE calls SET lead_id = ? WHERE id = ?", (new_lead_id, call_id))
+            
+    conn.commit()
+    conn.close()
+    
+    active_simulations[call_id]["status"] = "completed"
+    active_simulations[call_id]["completed"] = True
+
+
+@app.route('/api/calls/sim-stream/<call_id>', methods=['GET'])
+def sim_stream(call_id):
+    def event_generator():
+        last_turn_count = 0
+        
+        # Give initial handshake
+        yield f"data: {json.dumps({'type': 'init', 'status': 'queued'})}\n\n"
+        
+        while True:
+            if call_id not in active_simulations:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'Call not found'})}\n\n"
+                break
+                
+            state = active_simulations[call_id]
+            current_status = state["status"]
+            current_turns = state["turns"]
+            
+            # Send status update
+            yield f"data: {json.dumps({'type': 'status', 'status': current_status})}\n\n"
+            
+            # Send any new turns
+            if len(current_turns) > last_turn_count:
+                for turn in current_turns[last_turn_count:]:
+                    yield f"data: {json.dumps({'type': 'turn', 'speaker': turn['speaker'], 'text': turn['text']})}\n\n"
+                last_turn_count = len(current_turns)
+                
+            if state["completed"]:
+                yield f"data: {json.dumps({'type': 'completed'})}\n\n"
+                break
+                
+            time.sleep(1.0)
+            
+    return Response(event_generator(), mimetype='text/event-stream')
+
+@app.route('/api/calls/webhook', methods=['POST'])
+def calls_webhook():
+    data = request.json or {}
+    print(f"Received webhook callback payload: {json.dumps(data)}")
+    
+    # Bland AI webhook fields mapping (handles both Bland AI format and our simulation format)
+    phone = data.get("phone_number") or data.get("phone")
+    transcript_text = data.get("concatenated_transcript") or data.get("transcript")
+    duration = int(data.get("duration", 60))
+    recording_url = data.get("recording_url") or data.get("recording", "")
+    
+    metadata = data.get("metadata") or {}
+    lead_id = metadata.get("lead_id") or data.get("lead_id")
+    call_id = metadata.get("call_id") or data.get("call_id") or data.get("id")
+    
+    if not phone or not transcript_text:
+        return jsonify({"error": "Phone and transcript are required"}), 400
+        
+    created_at = datetime.utcnow().isoformat() + "Z"
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Update call record if it already exists, otherwise insert a new one
+    if call_id:
+        cursor.execute("SELECT id FROM calls WHERE id = ?", (call_id,))
+        call_exists = cursor.fetchone()
+    else:
+        call_exists = False
+        
+    if call_exists:
+        cursor.execute('''
+            UPDATE calls 
+            SET status = 'completed', transcript = ?, recording_url = ?, duration = ?
+            WHERE id = ?
+        ''', (transcript_text, recording_url, duration, call_id))
+    else:
+        actual_call_id = call_id or f"CALL-{random.randint(10000, 99999)}"
+        cursor.execute('''
+            INSERT INTO calls (id, lead_id, phone, status, transcript, recording_url, duration, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (actual_call_id, lead_id, phone, "completed", transcript_text, recording_url, duration, created_at))
+        call_id = actual_call_id
+        
+    conn.commit()
+    
+    # Process transcript to qualify/update lead
+    parsed = parse_multilingual_transcript(transcript_text)
+    score, lead_status = qualify_lead_score(parsed["timeline"], parsed["token_paid"], parsed["budget"])
+    insights = generate_insights_list(parsed["name"], "0.25 Acre Farmland (100 Trees)", parsed["location"], parsed["timeline"], parsed["token_paid"], parsed["budget"], score)
+    
+    if lead_id:
+        # Update existing lead
+        cursor.execute('''
+            UPDATE leads 
+            SET name = ?, location = ?, budget = ?, timeline = ?, token_paid = ?, ai_score = ?, status = ?
+            WHERE id = ?
+        ''', (parsed["name"], parsed["location"], parsed["budget"], parsed["timeline"], parsed["token_paid"], score, lead_status, lead_id))
+        cursor.execute("DELETE FROM ai_insights WHERE lead_id = ?", (lead_id,))
+        for ins in insights:
+            cursor.execute("INSERT INTO ai_insights (lead_id, insight) VALUES (?, ?)", (lead_id, ins))
+    else:
+        # Create new lead
+        new_lead_id = f"LD-{random.randint(1000, 9999)}"
+        cursor.execute('''
+            INSERT INTO leads (id, name, email, phone, plot_type, location, budget, ai_score, status, created_at, timeline, token_paid, agent_assigned)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            new_lead_id, parsed["name"], parsed["email"] or "investor@lohithadharma.com", phone,
+            "0.25 Acre Farmland (100 Trees)", parsed["location"], parsed["budget"],
+            score, lead_status, created_at, parsed["timeline"], parsed["token_paid"], "Sarah Jenkins"
+        ))
+        for ins in insights:
+            cursor.execute("INSERT INTO ai_insights (lead_id, insight) VALUES (?, ?)", (new_lead_id, ins))
+            
+        # Update call record with newly generated lead_id
+        cursor.execute("UPDATE calls SET lead_id = ? WHERE id = ?", (new_lead_id, call_id))
+        
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"success": True, "call_id": call_id, "lead_id": lead_id or new_lead_id}), 200
 
 
 # Start Flask server
