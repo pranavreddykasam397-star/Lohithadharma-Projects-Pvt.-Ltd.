@@ -83,6 +83,7 @@ export default function App() {
   // ─── AI Outbound Calling State ───
   const [outboundPhone, setOutboundPhone] = useState('');
   const [callStatus, setCallStatus] = useState('idle'); // 'idle', 'ringing', 'in-progress', 'completed'
+  const [isSimulatedCall, setIsSimulatedCall] = useState(false);
   const [activeCallId, setActiveCallId] = useState(null);
   const [liveTurns, setLiveTurns] = useState([]);
   const [callsHistory, setCallsHistory] = useState([]);
@@ -159,6 +160,7 @@ export default function App() {
     setCallStatus('ringing');
     setLiveTurns([]);
     setActiveCallId(null);
+    setIsSimulatedCall(false);
     toast(`Initiating AI call to ${phone}...`, 'info');
 
     try {
@@ -179,6 +181,10 @@ export default function App() {
       // If it is a real call, we inform the user.
       if (data.mode === 'real') {
         toast("Real voice call triggered successfully via Bland AI!", "success");
+        setIsSimulatedCall(false);
+      } else {
+        toast("No Bland AI key configured. Running call in Simulation Mode.", "info");
+        setIsSimulatedCall(true);
       }
       
       connectToCallStream(data.call_id);
@@ -196,6 +202,7 @@ export default function App() {
     setCallStatus('idle');
     setActiveCallId(null);
     setLiveTurns([]);
+    setIsSimulatedCall(false);
     toast("Call ended.", "info");
     fetchCallsHistory();
   };
@@ -1111,8 +1118,13 @@ export default function App() {
                       <div className="px-4 py-3 bg-[#2D2824] border-b border-[#3A332C] flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
-                          <span className="text-[11px] font-bold text-stone-300 uppercase tracking-wider">
+                          <span className="text-[11px] font-bold text-stone-300 uppercase tracking-wider flex items-center gap-2">
                             {callStatus === 'ringing' ? 'Ringing...' : callStatus === 'in-progress' ? 'Call in progress' : 'Call completed'}
+                            {isSimulatedCall && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 text-[9px] font-bold lowercase tracking-normal border border-amber-500/20">
+                                simulated
+                              </span>
+                            )}
                           </span>
                         </div>
                         <div className="text-[10px] text-stone-400 font-mono">
@@ -1183,7 +1195,7 @@ export default function App() {
                       {/* Action buttons */}
                       <div className="px-5 py-3 bg-[#24201D] border-t border-[#3A332C] flex justify-between items-center">
                         <span className="text-[10px] text-stone-400 font-mono">
-                          {callStatus === 'completed' ? 'Total duration: 36s' : 'Outbound channel: Active'}
+                          {callStatus === 'completed' ? 'Total duration: 36s' : isSimulatedCall ? 'Outbound channel: Simulated' : 'Outbound channel: Live Bland AI'}
                         </span>
                         <button 
                           onClick={stopActiveCall} 
