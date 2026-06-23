@@ -316,32 +316,57 @@ def parse_multilingual_transcript(text):
     location = None
     timeline = "1 - 3 months"
     token_paid = False
+    plot_type = None
     
     cleaned_text = clean_transcript_for_investor(text)
     text_lower = cleaned_text.lower()
-    full_text_lower = text.lower()
     
     # 1. Email Extraction
-    email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', text)
+    email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', cleaned_text)
     if email_match:
         email = email_match.group(0)
+    else:
+        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', text)
+        if email_match:
+            email = email_match.group(0)
         
     # 2. Location matching (Lohitha Dharma projects)
-    if "kadapa" in full_text_lower or "కడప" in full_text_lower or "कडपा" in full_text_lower:
-        location = "Kadapa Valley (Phase I & II)"
-    elif "tirupati" in full_text_lower or "తిరుపతి" in full_text_lower or "तिरुपति" in full_text_lower:
-        location = "Tirupati Foothills"
-    elif "chittoor" in full_text_lower or "చిత్తూరు" in full_text_lower or "चित्तूर" in full_text_lower:
-        location = "Chittoor Reserve"
-    elif "nellore" in full_text_lower or "నెల్లూరు" in full_text_lower or "नेलोर" in full_text_lower or "नेल्लूर" in full_text_lower:
+    if "nellore" in text_lower or "nelor" in text_lower or "నెల్లూరు" in text_lower or "नेलोर" in text_lower or "नेल्लूर" in text_lower:
         location = "Nellore Greenlands"
-    elif "rayalaseema" in full_text_lower or "రాయలసీమ" in full_text_lower or "रायलसीमा" in full_text_lower:
+    elif "kadapa" in text_lower or "కడప" in text_lower or "कडपा" in text_lower:
+        location = "Kadapa Valley (Phase I & II)"
+    elif "tirupati" in text_lower or "తిరుపతి" in text_lower or "तिरुपति" in text_lower:
+        location = "Tirupati Foothills"
+    elif "chittoor" in text_lower or "చిత్తూరు" in text_lower or "चित्तूर" in text_lower:
+        location = "Chittoor Reserve"
+    elif "rayalaseema" in text_lower or "రాయలసీమ" in text_lower or "रायलसीमा" in text_lower:
         location = "Rayalaseema Orchards"
+    else:
+        full_text_lower = text.lower()
+        if "nellore" in full_text_lower or "nelor" in full_text_lower or "నెల్లూరు" in full_text_lower or "नेलोर" in full_text_lower or "नेल्लूर" in full_text_lower:
+            location = "Nellore Greenlands"
+        elif "kadapa" in full_text_lower or "కడప" in full_text_lower or "कडపా" in full_text_lower:
+            location = "Kadapa Valley (Phase I & II)"
+        elif "tirupati" in full_text_lower or "తిరుపతి" in full_text_lower or "तिरुपति" in full_text_lower:
+            location = "Tirupati Foothills"
+        elif "chittoor" in full_text_lower or "చిత్తూరు" in full_text_lower or "चित्तूर" in full_text_lower:
+            location = "Chittoor Reserve"
+        elif "rayalaseema" in full_text_lower or "రాయలసీమ" in full_text_lower or "रायलसीमा" in full_text_lower:
+            location = "Rayalaseema Orchards"
         
     # 3. Budget extraction (INR)
-    num_matches = re.findall(r'\d+(?:\.\d+)?', full_text_lower)
-    is_crore = any(x in full_text_lower for x in ["crore", "crores", "cr", "करोड़", "కోట్లు", "కోటి", "cr."])
-    is_lakh = any(x in full_text_lower for x in ["lakh", "lakhs", "l", "लाख", "లక్షలు", "లక్ష", "l."])
+    # 3. Budget extraction (INR)
+    sentences = re.split(r'[\.\n]', text_lower)
+    budget_target = text_lower
+    for s in sentences:
+        s = s.strip()
+        if any(x in s for x in ["lakh", "lakhs", "lac", "lacs", "crore", "crores", "cr", "rupee", "rupees", "budget", "inr", "invest", "investment"]):
+            budget_target = s
+            break
+            
+    num_matches = re.findall(r'\d+(?:\.\d+)?', budget_target)
+    is_crore = any(x in budget_target for x in ["crore", "crores", "cr", "करोड़", "కోట్లు", "కోటి", "cr."])
+    is_lakh = any(x in budget_target for x in ["lakh", "lakhs", "lac", "lacs", "l", "लाख", "లక్షలు", "లక్ష", "l."])
     
     extracted_num = None
     if num_matches:
@@ -359,21 +384,71 @@ def parse_multilingual_transcript(text):
         else:
             budget = int(extracted_num) if extracted_num > 10000 else int(extracted_num * 100000)
     else:
-        # Check text words for numbers
-        if "twenty five" in full_text_lower or "25" in full_text_lower or "పాతిక" in full_text_lower or "पच्चीस" in full_text_lower:
-            budget = 2500000
-        elif "forty" in full_text_lower or "40" in full_text_lower or "నలభై" in full_text_lower or "चालीस" in full_text_lower:
-            budget = 4000000
-        elif "seventy five" in full_text_lower or "75" in full_text_lower or "డెబ్బై ఐదు" in full_text_lower or "पचहत्तर" in full_text_lower:
-            budget = 7500000
-        elif "one point two" in full_text_lower or "1.2" in full_text_lower or "కోటి ఇరవై" in full_text_lower:
-            budget = 12000000
-        elif "sixty" in full_text_lower or "60" in full_text_lower or "అరవై" in full_text_lower or "साठ" in full_text_lower:
-            budget = 6000000
-        elif "twelve" in full_text_lower or "12" in full_text_lower or "పన్నెండు" in full_text_lower or "बारह" in full_text_lower:
-            budget = 1200000
+        word_to_num = {
+            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+            "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+            "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+            "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+            "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40,
+            "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80,
+            "ninety": 90, "hundred": 100, "thousand": 1000,
+        }
+        
+        words = re.findall(r'[a-z]+', budget_target)
+        filtered_words = []
+        for i, w in enumerate(words):
+            if i + 1 < len(words) and words[i+1] in ["month", "months", "year", "years", "week", "weeks", "day", "days"]:
+                continue
+            filtered_words.append(w)
+            
+        total = 0
+        current = 0
+        for w in filtered_words:
+            if w in word_to_num:
+                val = word_to_num[w]
+                if val == 1000:
+                    current = (current or 1) * 1000
+                    total += current
+                    current = 0
+                elif val == 100:
+                    current = (current or 1) * 100
+                else:
+                    current += val
+            elif w in ["lakh", "lakhs", "lac", "lacs"]:
+                current = (current or 1) * 100000
+                total += current
+                current = 0
+            elif w in ["crore", "crores", "cr", "crs"]:
+                current = (current or 1) * 10000000
+                total += current
+                current = 0
+                
+        total += current
+        if total > 0:
+            budget = total
         else:
-            budget = 2400000
+            if "twenty five" in text_lower or "25" in text_lower or "పాతిక" in text_lower or "पच्चीस" in text_lower:
+                budget = 2500000
+            elif "forty" in text_lower or "40" in text_lower or "నలభై" in text_lower or "चालीस" in text_lower:
+                budget = 4000000
+            elif "seventy five" in text_lower or "75" in text_lower or "డెబ్బై ఐదు" in text_lower or "पचहत्तर" in text_lower:
+                budget = 7500000
+            elif "one point two" in text_lower or "1.2" in text_lower or "కోటి ఇరవై" in text_lower:
+                budget = 12000000
+            elif "sixty" in text_lower or "60" in text_lower or "అరవై" in text_lower or "साठ" in text_lower:
+                budget = 6000000
+            elif "twelve" in text_lower or "12" in text_lower or "పన్నెండు" in text_lower or "बारह" in text_lower:
+                budget = 1200000
+            else:
+                num_matches_full = re.findall(r'\d+(?:\.\d+)?', text.lower())
+                if num_matches_full:
+                    try:
+                        val_full = float(num_matches_full[0])
+                        budget = int(val_full) if val_full > 10000 else int(val_full * 100000)
+                    except:
+                        budget = 2400000
+                else:
+                    budget = 2400000
             
     # 4. Name extraction
     name_patterns = [
@@ -382,14 +457,12 @@ def parse_multilingual_transcript(text):
         r"(?:నా పేరు)\s+([^\s\.]+(?:\s+[^\s\.]+)?)"
     ]
     
-    # Try cleaned text first
     for pattern in name_patterns:
         match = re.search(pattern, cleaned_text, re.IGNORECASE)
         if match:
             name = match.group(1).strip()
             break
             
-    # Fallback to full text
     if not name:
         for pattern in name_patterns:
             match = re.search(pattern, text, re.IGNORECASE)
@@ -407,18 +480,59 @@ def parse_multilingual_transcript(text):
             name = "Interested Investor"
             
     # 5. Timeline extraction
-    if any(x in full_text_lower for x in ["immediate", "next week", "this month", "వెంటనే", "ఈ నెల", "तुरंत", "अगले हफ्ते", "1 నెల"]):
+    if any(x in text_lower for x in ["immediate", "next week", "this month", "వెంటనే", "ఈ నెల", "तुरंत", "अगले हफ्ते", "1 నెల"]):
         timeline = "Immediate (< 1 month)"
-    elif any(x in full_text_lower for x in ["1-3 months", "2 months", "రెండు నెలలు", "दो महीने", "अगले महीने", "1-3 నెలలు"]):
+    elif any(x in text_lower for x in ["1-3 months", "2 months", "రెండు నెలలు", "दो महीने", "अगले महीने", "1-3 నెలలు"]):
         timeline = "1 - 3 months"
-    elif any(x in full_text_lower for x in ["3-6 months", "3 months", "మూడు నెలలు", "तीन महीने", "अगले तीन महीने"]):
+    elif any(x in text_lower for x in ["3-6 months", "3 months", "మూడు నెలలు", "तीन महीने", "अगले तीन महीने"]):
         timeline = "3 - 6 months"
-    elif any(x in full_text_lower for x in ["6+ months", "next year", "వచ్చే ఏడాది", "अगले साल"]):
+    elif any(x in text_lower for x in ["6+ months", "7 months", "seven months", "eight months", "nine months", "ten months", "year", "years", "next year", "వచ్చే ఏడాది", "अगले साल"]):
         timeline = "6+ months"
+    else:
+        full_text_lower = text.lower()
+        if any(x in full_text_lower for x in ["immediate", "next week", "this month", "వెంటనే", "ఈ నెల", "तुरंत", "अगले हफ्ते", "1 నెల"]):
+            if not ("is it immediate" in full_text_lower or "one to three months" in full_text_lower):
+                timeline = "Immediate (< 1 month)"
+        elif "6+ months" in full_text_lower or "6 months or more" in full_text_lower or "seven months" in full_text_lower:
+            timeline = "6+ months"
         
     # 6. Token Paid
-    if any(x in full_text_lower for x in ["token", "paid", "advance", "debit", "पे", "డబ్బులు", "అడ్వాన్స్", "పే చేసాను", "ట్రాన్స్ఫర్", "दे दिया", "क्रेडिट"]):
+    token_keywords = ["paid", "debit", "पे", "అడ్వాన్స్", "పే చేసాను", "ట్రాన్స్ఫర్", "दे दिया", "क्रेडिट"]
+    has_token_word = any(x in text_lower for x in token_keywords)
+    has_negation = any(x in text_lower for x in ["no", "not", "haven't", "don't", "didnot", "did not", "never"])
+    
+    if has_token_word and not has_negation:
         token_paid = True
+    else:
+        token_paid = False
+        
+    # 7. Plot Type Extraction
+    if "600" in text_lower or "six hundred" in text_lower:
+        plot_type = "600 Sq. Yards Plot (50 Trees)"
+    elif "1200" in text_lower or "twelve hundred" in text_lower or "1200 sq" in text_lower:
+        plot_type = "1200 Sq. Yards Plot (100 Trees)"
+    elif "2400" in text_lower or "twenty four hundred" in text_lower or "2400 sq" in text_lower:
+        plot_type = "2400 Sq. Yards Plot (200 Trees)"
+    elif "0.25" in text_lower or "quarter" in text_lower or "point two five" in text_lower:
+        plot_type = "0.25 Acre Farmland (100 Trees)"
+    elif "0.5" in text_lower or "half" in text_lower or "point five" in text_lower:
+        plot_type = "0.5 Acre Farmland (200 Trees)"
+    elif "1.0" in text_lower or "one acre" in text_lower or "1 acre" in text_lower:
+        plot_type = "1.0 Acre Farmland (400 Trees)"
+    else:
+        full_text_lower = text.lower()
+        if "600" in full_text_lower or "six hundred" in full_text_lower:
+            plot_type = "600 Sq. Yards Plot (50 Trees)"
+        elif "1200" in full_text_lower or "twelve hundred" in full_text_lower:
+            plot_type = "1200 Sq. Yards Plot (100 Trees)"
+        elif "2400" in full_text_lower or "twenty four hundred" in full_text_lower:
+            plot_type = "2400 Sq. Yards Plot (200 Trees)"
+        elif "0.25" in full_text_lower or "quarter" in full_text_lower:
+            plot_type = "0.25 Acre Farmland (100 Trees)"
+        elif "0.5" in full_text_lower or "half" in full_text_lower:
+            plot_type = "0.5 Acre Farmland (200 Trees)"
+        elif "1.0" in full_text_lower or "one acre" in full_text_lower:
+            plot_type = "1.0 Acre Farmland (400 Trees)"
         
     return {
         "name": name,
@@ -426,7 +540,8 @@ def parse_multilingual_transcript(text):
         "budget": budget,
         "location": location or "Kadapa Valley (Phase I & II)",
         "timeline": timeline,
-        "token_paid": token_paid
+        "token_paid": token_paid,
+        "plot_type": plot_type or "0.25 Acre Farmland (100 Trees)"
     }
 
 # ==========================================
@@ -803,14 +918,26 @@ def save_and_sync_call_data(call_id, lead_id, phone, transcript_text, duration, 
     
     parsed = parse_multilingual_transcript(transcript_text)
     score, lead_status = qualify_lead_score(parsed["timeline"], parsed["token_paid"], parsed["budget"])
-    insights = generate_insights_list(parsed["name"], "0.25 Acre Farmland (100 Trees)", parsed["location"], parsed["timeline"], parsed["token_paid"], parsed["budget"], score)
+    insights = generate_insights_list(parsed["name"], parsed["plot_type"], parsed["location"], parsed["timeline"], parsed["token_paid"], parsed["budget"], score)
     
+    # Associate call record with resolved lead_id in the calls table
+    if lead_id:
+        cursor.execute("UPDATE calls SET lead_id = ? WHERE id = ?", (lead_id, call_id))
+        
     if lead_id:
         cursor.execute('''
             UPDATE leads 
-            SET name = ?, location = ?, budget = ?, timeline = ?, token_paid = ?, ai_score = ?, status = ?
+            SET name = ?, 
+                email = COALESCE(?, email), 
+                plot_type = COALESCE(?, plot_type), 
+                location = ?, 
+                budget = ?, 
+                timeline = ?, 
+                token_paid = ?, 
+                ai_score = ?, 
+                status = ?
             WHERE id = ?
-        ''', (parsed["name"], parsed["location"], parsed["budget"], parsed["timeline"], parsed["token_paid"], score, lead_status, lead_id))
+        ''', (parsed["name"], parsed["email"], parsed["plot_type"], parsed["location"], parsed["budget"], parsed["timeline"], parsed["token_paid"], score, lead_status, lead_id))
         cursor.execute("DELETE FROM ai_insights WHERE lead_id = ?", (lead_id,))
         for ins in insights:
             cursor.execute("INSERT INTO ai_insights (lead_id, insight) VALUES (?, ?)", (lead_id, ins))
@@ -821,7 +948,7 @@ def save_and_sync_call_data(call_id, lead_id, phone, transcript_text, duration, 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             new_lead_id, parsed["name"], parsed["email"] or "investor@lohithadharma.com", phone,
-            "0.25 Acre Farmland (100 Trees)", parsed["location"], parsed["budget"],
+            parsed["plot_type"], parsed["location"], parsed["budget"],
             score, lead_status, created_at, parsed["timeline"], parsed["token_paid"], "Sarah Jenkins"
         ))
         for ins in insights:
@@ -1010,10 +1137,12 @@ Your goal is to connect with the lead, confirm their name, and qualify their pur
 Converse naturally and dynamically.
 Extract the following information during the call:
 1. Confirm their full name (which is {lead_name}).
-2. Ask which farmland project/location they are interested in (must be one of: Kadapa Valley (Phase I & II), Tirupati Foothills, Chittoor Reserve, Nellore Greenlands, Rayalaseema Orchards).
-3. Ask for their estimated investment budget in Indian Rupees (INR).
-4. Ask what their timeline is for registering the plot (e.g., immediate, 1-3 months, 3-6 months, 6+ months).
-5. Ask if they have paid the advance booking token to reserve their plot.
+2. Ask for their email address.
+3. Ask what plot type size they are looking for (must be one of: 600 Sq. Yards, 1200 Sq. Yards, 2400 Sq. Yards, 0.25 Acre, 0.5 Acre, 1.0 Acre).
+4. Ask which farmland project/location they are interested in (must be one of: Kadapa Valley (Phase I & II), Tirupati Foothills, Chittoor Reserve, Nellore Greenlands, Rayalaseema Orchards).
+5. Ask for their estimated investment budget in Indian Rupees (INR).
+6. Ask what their timeline is for registering the plot (e.g., immediate, 1-3 months, 3-6 months, 6+ months).
+7. Ask if they have paid the advance booking token to reserve their plot.
 
 Start the call by asking for their name and greeting them. Once you have collected all info, thank them and end the call."""
 
