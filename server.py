@@ -972,7 +972,9 @@ def trigger_call():
     if phone:
         phone = format_phone_number(phone)
     lead_id = data.get("lead_id")
-    bland_api_key = data.get("bland_api_key") or os.environ.get("BLAND_API_KEY")
+    bland_api_key = os.environ.get("BLAND_API_KEY") or data.get("bland_api_key")
+    if bland_api_key and (bland_api_key.startswith("http://") or bland_api_key.startswith("https://")):
+        bland_api_key = os.environ.get("BLAND_API_KEY")
     webhook_base = os.environ.get("WEBHOOK_BASE_URL") or data.get("webhook_base_url")
     
     print(f"DEBUG: Trigger payload={data}", flush=True)
