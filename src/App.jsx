@@ -182,12 +182,12 @@ export default function App() {
       if (data.mode === 'real') {
         toast("Real voice call triggered successfully via Bland AI!", "success");
         setIsSimulatedCall(false);
+        setCallStatus('in-progress');
       } else {
         toast("No Bland AI key configured. Running call in Simulation Mode.", "info");
         setIsSimulatedCall(true);
+        connectToCallStream(data.call_id);
       }
-      
-      connectToCallStream(data.call_id);
     } catch (err) {
       console.error(err);
       toast("Failed to trigger call: " + err.message, "error");
@@ -1172,6 +1172,18 @@ export default function App() {
                         {liveTurns.length === 0 && callStatus === 'ringing' && (
                           <div className="text-[#9B918A] text-center pt-16 animate-pulse">
                             ☎️ Connection established. Waiting for answer...
+                          </div>
+                        )}
+                        {liveTurns.length === 0 && !isSimulatedCall && callStatus === 'in-progress' && (
+                          <div className="text-[#9B918A] text-center pt-12 space-y-4">
+                            <div className="text-emerald-400 text-sm font-bold animate-pulse flex items-center justify-center gap-2">
+                              <span>🟢</span> Live Call Active via Bland AI
+                            </div>
+                            <div className="max-w-xs mx-auto text-stone-400 text-[10px] leading-relaxed font-sans bg-[#24201D] p-4 rounded-xl border border-[#3E3834]">
+                              Speak with the AI agent on your phone now. 
+                              <br/><br/>
+                              Bland AI will dynamically collect registration details, budget, and location. The full transcript, call duration, and qualified lead metrics will update in the CRM automatically once you hang up.
+                            </div>
                           </div>
                         )}
                         {liveTurns.map((turn, idx) => (

@@ -7,6 +7,17 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
+# Load .env file manually if exists
+env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+if os.path.exists(env_path):
+    print("Loading environment variables from .env file...")
+    with open(env_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                key, val = line.split('=', 1)
+                os.environ[key.strip()] = val.strip()
+
 app = Flask(__name__)
 # Enable CORS for communication with Vite React frontend
 CORS(app)
@@ -657,7 +668,11 @@ def trigger_call():
     phone = data.get("phone")
     lead_id = data.get("lead_id")
     bland_api_key = data.get("bland_api_key") or os.environ.get("BLAND_API_KEY")
-    webhook_base = data.get("webhook_base_url")
+    webhook_base = data.get("webhook_base_url") or os.environ.get("WEBHOOK_BASE_URL")
+    
+    print(f"DEBUG: Trigger payload={data}")
+    print(f"DEBUG: BLAND_API_KEY in env={bool(os.environ.get('BLAND_API_KEY'))}")
+    print(f"DEBUG: bland_api_key resolved={bool(bland_api_key)}")
     
     if not phone:
         return jsonify({"error": "Phone number is required"}), 400
@@ -698,6 +713,7 @@ Start the call by asking for their name and greeting them. Once you have collect
             webhook_url = f"{webhook_base.rstrip('/')}/api/calls/webhook"
 
         import urllib.request
+        import urllib.error
         bland_url = "https://api.bland.ai/v1/calls"
         bland_payload = {
             "phone_number": phone,
@@ -719,7 +735,8 @@ Start the call by asking for their name and greeting them. Once you have collect
                 data=req_data,
                 headers={
                     'Content-Type': 'application/json',
-                    'Authorization': bland_api_key
+                    'authorization': bland_api_key,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                 }
             )
             with urllib.request.urlopen(req) as response:
@@ -744,6 +761,10 @@ Start the call by asking for their name and greeting them. Once you have collect
                     "lead_name": lead_name,
                     "mode": "real"
                 }), 201
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode('utf-8')
+            print(f"Bland AI trigger HTTP error: {e.code} - {e.reason}. Body: {err_body}")
+            print("Falling back to simulation mode...")
         except Exception as e:
             print(f"Bland AI trigger failed: {str(e)}. Falling back to simulation mode...")
             
