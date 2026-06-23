@@ -652,6 +652,33 @@ from flask import Response
 # In-memory store for active simulated call threads
 active_simulations = {}
 
+def format_phone_number(phone):
+    if not phone:
+        return ""
+    # Remove any non-digit characters except possibly +
+    cleaned = re.sub(r'[^\d+]', '', phone)
+    
+    if cleaned.startswith('+'):
+        return cleaned
+        
+    # Strip any leading zero (common in local Indian dialing)
+    if cleaned.startswith('0'):
+        cleaned = cleaned[1:]
+        
+    # If it is 10 digits, prepend +91
+    if len(cleaned) == 10:
+        return '+91' + cleaned
+        
+    # If it is 12 digits and starts with 91, prepend +
+    if len(cleaned) == 12 and cleaned.startswith('91'):
+        return '+' + cleaned
+        
+    # Default fallback: if it doesn't start with +91, format as India
+    if not cleaned.startswith('91'):
+        return '+91' + cleaned
+    else:
+        return '+' + cleaned
+
 @app.route('/api/calls', methods=['GET'])
 def get_calls():
     conn = get_db_connection()
@@ -666,6 +693,8 @@ def get_calls():
 def trigger_call():
     data = request.json or {}
     phone = data.get("phone")
+    if phone:
+        phone = format_phone_number(phone)
     lead_id = data.get("lead_id")
     bland_api_key = data.get("bland_api_key") or os.environ.get("BLAND_API_KEY")
     webhook_base = data.get("webhook_base_url") or os.environ.get("WEBHOOK_BASE_URL")
