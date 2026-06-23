@@ -322,13 +322,19 @@ def parse_multilingual_transcript(text):
     text_lower = cleaned_text.lower()
     
     # 1. Email Extraction
-    email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', cleaned_text)
+    temp_email_text = cleaned_text.lower()
+    temp_email_text = re.sub(r'\s+at\s+', '@', temp_email_text)
+    temp_email_text = re.sub(r'\s+dot\s+', '.', temp_email_text)
+    email_match = re.search(r'[\w\.-]+\s*@\s*[\w\.-]+\s*\.\s*\w+', temp_email_text)
     if email_match:
-        email = email_match.group(0)
+        email = email_match.group(0).replace(" ", "")
     else:
-        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', text)
+        temp_full_text = text.lower()
+        temp_full_text = re.sub(r'\s+at\s+', '@', temp_full_text)
+        temp_full_text = re.sub(r'\s+dot\s+', '.', temp_full_text)
+        email_match = re.search(r'[\w\.-]+\s*@\s*[\w\.-]+\s*\.\s*\w+', temp_full_text)
         if email_match:
-            email = email_match.group(0)
+            email = email_match.group(0).replace(" ", "")
         
     # 2. Location matching (Lohitha Dharma projects)
     if "nellore" in text_lower or "nelor" in text_lower or "నెల్లూరు" in text_lower or "नेलोर" in text_lower or "नेल्लूर" in text_lower:
@@ -355,12 +361,15 @@ def parse_multilingual_transcript(text):
             location = "Rayalaseema Orchards"
         
     # 3. Budget extraction (INR)
-    # 3. Budget extraction (INR)
     sentences = re.split(r'[\.\n]', text_lower)
     budget_target = text_lower
+    currency_patterns = [
+        r'\blakhs?\b', r'\blacs?\b', r'\bcrores?\b', r'\bcr\b', 
+        r'\brupees?\b', r'\bbudget\b', r'\binr\b', r'\binvest(?:ment)?s?\b'
+    ]
     for s in sentences:
         s = s.strip()
-        if any(x in s for x in ["lakh", "lakhs", "lac", "lacs", "crore", "crores", "cr", "rupee", "rupees", "budget", "inr", "invest", "investment"]):
+        if any(re.search(pat, s) for pat in currency_patterns):
             budget_target = s
             break
             
