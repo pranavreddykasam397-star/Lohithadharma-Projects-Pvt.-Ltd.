@@ -89,6 +89,7 @@ export default function App() {
   const [callsHistory, setCallsHistory] = useState([]);
   const [loadingCalls, setLoadingCalls] = useState(false);
   const [expandedCallId, setExpandedCallId] = useState(null);
+  const [isCallHistoryCollapsed, setIsCallHistoryCollapsed] = useState(false);
   const [blandKey, setBlandKey] = useState(() => localStorage.getItem('bland_api_key') || '');
   const [webhookBase, setWebhookBase] = useState(() => localStorage.getItem('webhook_base_url') || '');
   const [backendUrl, setBackendUrl] = useState(() => localStorage.getItem('backend_api_url') || DEFAULT_API);
@@ -110,6 +111,39 @@ export default function App() {
       console.error("Error fetching call history:", err);
     } finally {
       setLoadingCalls(false);
+    }
+  };
+
+  const deleteCallRecord = async (callId, e) => {
+    e.stopPropagation();
+    if (!confirm("Are you sure you want to delete this call record?")) return;
+    try {
+      const res = await fetch(`${backendUrl}/api/calls/${callId}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast("Call record deleted", "success");
+        fetchCallsHistory();
+      } else {
+        toast("Failed to delete call record", "error");
+      }
+    } catch (err) {
+      console.error("Error deleting call record:", err);
+      toast("Error deleting call", "error");
+    }
+  };
+
+  const clearAllCallHistory = async () => {
+    if (!confirm("Are you sure you want to clear all call history? This cannot be undone.")) return;
+    try {
+      const res = await fetch(`${backendUrl}/api/calls`, { method: 'DELETE' });
+      if (res.ok) {
+        toast("Call history cleared", "success");
+        fetchCallsHistory();
+      } else {
+        toast("Failed to clear call history", "error");
+      }
+    } catch (err) {
+      console.error("Error clearing call history:", err);
+      toast("Error clearing history", "error");
     }
   };
 
@@ -1232,48 +1266,93 @@ export default function App() {
                   )}
 
                   {/* Outbound Calls Logs */}
-                  <div className="bg-app-panel border border-app-border rounded-xl overflow-hidden shadow-sm">
-                    <div className="px-4 py-3 border-b border-app-border bg-app-input/30 font-semibold text-xs text-app-text">
-                      Campaign Call History
+                  <div className="bg-app-panel border border-app-border rounded-xl overflow-hidden shadow-sm transition-all duration-300">
+                    <div 
+                      onClick={() => setIsCallHistoryCollapsed(!isCallHistoryCollapsed)}
+                      className="px-4 py-3 border-b border-app-border bg-app-input/30 flex items-center justify-between cursor-pointer select-none"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-xs text-app-text">Campaign Call History</span>
+                        <span className="text-[10px] bg-app-input text-app-muted px-1.5 py-0.5 rounded-full font-bold">
+                          {callsHistory.length}
+                        </span>
+                        <span className="text-app-muted text-[10px]">
+                          {isCallHistoryCollapsed ? '▼' : '▲'}
+                        </span>
+                      </div>
+                      {callsHistory.length > 0 && (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); clearAllCallHistory(); }}
+                          className="text-[10px] text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 font-bold hover:underline cursor-pointer flex items-center gap-1"
+                        >
+                          🗑️ Clear All
+                        </button>
+                      )}
                     </div>
-                    {loadingCalls ? (
-                      <div className="py-12 text-center text-xs text-app-muted">Loading history...</div>
-                    ) : callsHistory.length === 0 ? (
-                      <div className="py-12 text-center text-xs text-app-muted">No outbound calls triggered yet.</div>
-                    ) : (
-                      <div className="divide-y divide-app-border">
-                        {callsHistory.map(call => (
-                          <div key={call.id} className="p-4 space-y-3">
-                            <div className="flex items-center justify-between text-xs">
-                              <div>
-                                <span className="font-semibold text-app-text">{call.phone}</span>
-                                <span className="text-app-muted text-[10px] ml-2 font-mono">({call.id})</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-[10px] text-app-muted">{fmtDate(call.created_at)}</span>
-                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/30">
-                                  {call.status}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="flex justify-between items-center text-[11px]">
-                              <span className="text-app-muted">Duration: {call.duration} seconds</span>
-                              <button 
-                                onClick={() => setExpandedCallId(expandedCallId === call.id ? null : call.id)}
-                                className="text-app-accent hover:underline font-semibold cursor-pointer"
-                              >
-                                {expandedCallId === call.id ? 'Hide Transcript ▲' : 'Show Transcript ▼'}
-                              </button>
-                            </div>
+                    
+                    {!isCallHistoryCollapsed && (
+                      <div>
+                        {loadingCalls ? (
+                          <div className="py-12 text-center text-xs text-app-muted">Loading history...</div>
+                        ) : callsHistory.length === 0 ? (
+                          <div className="py-12 text-center text-xs text-app-muted">No outbound calls triggered yet.</div>
+                        ) : (
+                          <div className="divide-y divide-app-border">
+                            {callsHistory.map(call => (
+                              <div key={call.id} className="p-4 space-y-3 hover:bg-app-input/10 transition-colors duration-150">
+                                <div className="flex items-center justify-between text-xs">
+                                  <div>
+                                    <span className="font-semibold text-app-text">{call.phone}</span>
+                                    <span className="text-app-muted text-[10px] ml-2 font-mono">({call.id})</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] text-app-muted">{fmtDate(call.created_at)}</span>
+                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
+                                      call.status === 'completed' 
+                                        ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/30'
+                                        : call.status === 'failed'
+                                        ? 'bg-rose-50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/30'
+                                        : 'bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900/30'
+                                    }`}>
+                                      {call.status}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="flex justify-between items-center text-[11px]">
+                                  <span className="text-app-muted">Duration: {call.duration} seconds</span>
+                                  <div className="flex items-center gap-3">
+                                    <button 
+                                      onClick={() => setExpandedCallId(expandedCallId === call.id ? null : call.id)}
+                                      className="text-app-accent hover:underline font-semibold cursor-pointer"
+                                    >
+                                      {expandedCallId === call.id ? 'Hide Transcript ▲' : 'Show Transcript ▼'}
+                                    </button>
+                                    <button 
+                                      onClick={(e) => deleteCallRecord(call.id, e)}
+                                      className="text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 font-semibold cursor-pointer"
+                                      title="Delete call record"
+                                    >
+                                      🗑️
+                                    </button>
+                                  </div>
+                                </div>
 
-                            {/* Expanded Transcript display */}
-                            {expandedCallId === call.id && (
-                              <div className="p-3 bg-app-input border border-app-border rounded-lg text-xs leading-relaxed text-app-text space-y-1 max-h-[250px] overflow-y-auto whitespace-pre-wrap font-mono font-bold">
-                                {call.transcript ? call.transcript : "No transcript recorded."}
+                                {/* Expanded Transcript display */}
+                                {expandedCallId === call.id && (
+                                  <div className="p-3 bg-app-input border border-app-border rounded-lg text-xs leading-relaxed text-app-text space-y-1 max-h-[250px] overflow-y-auto whitespace-pre-wrap font-mono font-bold">
+                                    {call.transcript ? call.transcript : "No transcript recorded."}
+                                    {call.recording_url && (
+                                      <div className="mt-3 pt-3 border-t border-app-border">
+                                        <div className="text-[10px] text-app-muted uppercase font-sans tracking-wider mb-1">Call Recording:</div>
+                                        <audio src={call.recording_url} controls className="w-full h-8" />
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </div>
-                            )}
+                            ))}
                           </div>
-                        ))}
+                        )}
                       </div>
                     )}
                   </div>

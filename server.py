@@ -757,8 +757,182 @@ def sync_lead_to_firestore(lead_id):
         print(f"Firestore Sync Failure for Lead {lead_id}: {str(e)}")
         return False
 
+def save_and_sync_call_data(call_id, lead_id, phone, transcript_text, duration, recording_url, created_at=None):
+    if not created_at:
+        created_at = datetime.utcnow().isoformat() + "Z"
+        
+    phone = format_phone_number(phone)
+    
+    if not lead_id:
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM leads WHERE phone = ? OR phone LIKE ?", (phone, f"%{phone[-10:]}"))
+            row = cursor.fetchone()
+            if row:
+                lead_id = row["id"]
+                print(f"Polling/Sync: Found matching lead {lead_id} for phone {phone}", flush=True)
+            conn.close()
+        except Exception as e:
+            print(f"Error finding lead by phone number: {str(e)}", flush=True)
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    if call_id:
+        cursor.execute("SELECT id FROM calls WHERE id = ?", (call_id,))
+        call_exists = cursor.fetchone()
+    else:
+        call_exists = False
+        
+    if call_exists:
+        cursor.execute('''
+            UPDATE calls 
+            SET status = 'completed', transcript = ?, recording_url = ?, duration = ?
+            WHERE id = ?
+        ''', (transcript_text, recording_url, duration, call_id))
+    else:
+        actual_call_id = call_id or f"CALL-{random.randint(10000, 99999)}"
+        cursor.execute('''
+            INSERT INTO calls (id, lead_id, phone, status, transcript, recording_url, duration, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (actual_call_id, lead_id, phone, "completed", transcript_text, recording_url, duration, created_at))
+        call_id = actual_call_id
+        
+    conn.commit()
+    
+    parsed = parse_multilingual_transcript(transcript_text)
+    score, lead_status = qualify_lead_score(parsed["timeline"], parsed["token_paid"], parsed["budget"])
+    insights = generate_insights_list(parsed["name"], "0.25 Acre Farmland (100 Trees)", parsed["location"], parsed["timeline"], parsed["token_paid"], parsed["budget"], score)
+    
+    if lead_id:
+        cursor.execute('''
+            UPDATE leads 
+            SET name = ?, location = ?, budget = ?, timeline = ?, token_paid = ?, ai_score = ?, status = ?
+            WHERE id = ?
+        ''', (parsed["name"], parsed["location"], parsed["budget"], parsed["timeline"], parsed["token_paid"], score, lead_status, lead_id))
+        cursor.execute("DELETE FROM ai_insights WHERE lead_id = ?", (lead_id,))
+        for ins in insights:
+            cursor.execute("INSERT INTO ai_insights (lead_id, insight) VALUES (?, ?)", (lead_id, ins))
+    else:
+        new_lead_id = f"LD-{random.randint(1000, 9999)}"
+        cursor.execute('''
+            INSERT INTO leads (id, name, email, phone, plot_type, location, budget, ai_score, status, created_at, timeline, token_paid, agent_assigned)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            new_lead_id, parsed["name"], parsed["email"] or "investor@lohithadharma.com", phone,
+            "0.25 Acre Farmland (100 Trees)", parsed["location"], parsed["budget"],
+            score, lead_status, created_at, parsed["timeline"], parsed["token_paid"], "Sarah Jenkins"
+        ))
+        for ins in insights:
+            cursor.execute("INSERT INTO ai_insights (lead_id, insight) VALUES (?, ?)", (new_lead_id, ins))
+            
+        cursor.execute("UPDATE calls SET lead_id = ? WHERE id = ?", (new_lead_id, call_id))
+        lead_id = new_lead_id
+        
+    conn.commit()
+    conn.close()
+    
+    try:
+        sync_lead_to_firestore(lead_id)
+    except Exception as fs_err:
+        print(f"Error syncing to Firestore: {str(fs_err)}", flush=True)
+        
+    return lead_id
+
+def sync_active_calls_from_bland():
+    bland_api_key = os.environ.get("BLAND_API_KEY")
+    if not bland_api_key:
+        return
+        
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, lead_id, phone, created_at 
+            FROM calls 
+            WHERE status IN ('in-progress', 'ringing') 
+              AND id NOT LIKE 'CALL-%' 
+              AND datetime(created_at) > datetime('now', '-2 hours')
+        """)
+        active_calls = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+    except Exception as e:
+        print(f"Error fetching active calls from DB: {str(e)}", flush=True)
+        return
+        
+    if not active_calls:
+        return
+        
+    import urllib.request
+    import urllib.error
+    import json
+    
+    for row in active_calls:
+        call_id = row["id"]
+        lead_id = row["lead_id"]
+        phone = row["phone"]
+        created_at = row["created_at"]
+        
+        bland_url = f"https://api.bland.ai/v1/calls/{call_id}"
+        req = urllib.request.Request(
+            bland_url,
+            headers={
+                'authorization': bland_api_key,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        )
+        
+        try:
+            print(f"Polling status of call {call_id} from Bland AI...", flush=True)
+            with urllib.request.urlopen(req) as response:
+                res_body = response.read().decode('utf-8')
+                res_json = json.loads(res_body)
+                
+                bland_status = res_json.get("status")
+                transcript = res_json.get("concatenated_transcript") or res_json.get("transcript")
+                recording_url = res_json.get("recording_url") or res_json.get("recording") or ""
+                duration = res_json.get("call_length") or res_json.get("duration") or 0
+                try:
+                    duration = int(float(duration))
+                except:
+                    duration = 0
+                
+                print(f"Call {call_id} Bland AI status: {bland_status}, transcript length: {len(transcript) if transcript else 0}", flush=True)
+                
+                if bland_status not in ["in-progress", "ringing"] or transcript:
+                    if not transcript:
+                        transcript = f"[Call ended with status: {bland_status}]"
+                    
+                    save_and_sync_call_data(call_id, lead_id, phone, transcript, duration, recording_url, created_at)
+                    print(f"Successfully synced call {call_id} via API polling.", flush=True)
+                    
+        except urllib.error.HTTPError as e:
+            try:
+                err_body = e.read().decode('utf-8')
+            except:
+                err_body = ""
+            print(f"Error polling call {call_id} from Bland AI: {e.code} - {e.reason}. Body: {err_body}", flush=True)
+            if e.code in [400, 404]:
+                try:
+                    conn = get_db_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE calls SET status = 'failed', transcript = '[Call not found on Bland AI]' WHERE id = ?", (call_id,))
+                    conn.commit()
+                    conn.close()
+                except Exception as db_err:
+                    print(f"Error updating failed call status: {str(db_err)}", flush=True)
+        except Exception as e:
+            print(f"Failed to poll call {call_id}: {str(e)}", flush=True)
+
 @app.route('/api/calls', methods=['GET'])
 def get_calls():
+    # Sync active calls first
+    try:
+        sync_active_calls_from_bland()
+    except Exception as e:
+        print(f"Error during active calls sync: {str(e)}", flush=True)
+        
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM calls ORDER BY created_at DESC")
@@ -766,6 +940,30 @@ def get_calls():
     calls = [dict(r) for r in rows]
     conn.close()
     return jsonify(calls)
+
+@app.route('/api/calls/<call_id>', methods=['DELETE'])
+def delete_call(call_id):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM calls WHERE id = ?", (call_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": f"Call {call_id} deleted successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/calls', methods=['DELETE'])
+def clear_call_history():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM calls")
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "Call history cleared successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/calls/trigger', methods=['POST'])
 def trigger_call():
@@ -775,7 +973,7 @@ def trigger_call():
         phone = format_phone_number(phone)
     lead_id = data.get("lead_id")
     bland_api_key = data.get("bland_api_key") or os.environ.get("BLAND_API_KEY")
-    webhook_base = data.get("webhook_base_url") or os.environ.get("WEBHOOK_BASE_URL")
+    webhook_base = os.environ.get("WEBHOOK_BASE_URL") or data.get("webhook_base_url")
     
     print(f"DEBUG: Trigger payload={data}", flush=True)
     print(f"DEBUG: BLAND_API_KEY in env={bool(os.environ.get('BLAND_API_KEY'))}", flush=True)
@@ -1077,73 +1275,19 @@ def calls_webhook():
     if not phone or not transcript_text:
         return jsonify({"error": "Phone and transcript are required"}), 400
         
-    created_at = datetime.utcnow().isoformat() + "Z"
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Update call record if it already exists, otherwise insert a new one
-    if call_id:
-        cursor.execute("SELECT id FROM calls WHERE id = ?", (call_id,))
-        call_exists = cursor.fetchone()
-    else:
-        call_exists = False
-        
-    if call_exists:
-        cursor.execute('''
-            UPDATE calls 
-            SET status = 'completed', transcript = ?, recording_url = ?, duration = ?
-            WHERE id = ?
-        ''', (transcript_text, recording_url, duration, call_id))
-    else:
-        actual_call_id = call_id or f"CALL-{random.randint(10000, 99999)}"
-        cursor.execute('''
-            INSERT INTO calls (id, lead_id, phone, status, transcript, recording_url, duration, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (actual_call_id, lead_id, phone, "completed", transcript_text, recording_url, duration, created_at))
-        call_id = actual_call_id
-        
-    conn.commit()
-    
-    # Process transcript to qualify/update lead
-    parsed = parse_multilingual_transcript(transcript_text)
-    score, lead_status = qualify_lead_score(parsed["timeline"], parsed["token_paid"], parsed["budget"])
-    insights = generate_insights_list(parsed["name"], "0.25 Acre Farmland (100 Trees)", parsed["location"], parsed["timeline"], parsed["token_paid"], parsed["budget"], score)
-    
-    if lead_id:
-        # Update existing lead
-        cursor.execute('''
-            UPDATE leads 
-            SET name = ?, location = ?, budget = ?, timeline = ?, token_paid = ?, ai_score = ?, status = ?
-            WHERE id = ?
-        ''', (parsed["name"], parsed["location"], parsed["budget"], parsed["timeline"], parsed["token_paid"], score, lead_status, lead_id))
-        cursor.execute("DELETE FROM ai_insights WHERE lead_id = ?", (lead_id,))
-        for ins in insights:
-            cursor.execute("INSERT INTO ai_insights (lead_id, insight) VALUES (?, ?)", (lead_id, ins))
-    else:
-        # Create new lead
-        new_lead_id = f"LD-{random.randint(1000, 9999)}"
-        cursor.execute('''
-            INSERT INTO leads (id, name, email, phone, plot_type, location, budget, ai_score, status, created_at, timeline, token_paid, agent_assigned)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            new_lead_id, parsed["name"], parsed["email"] or "investor@lohithadharma.com", phone,
-            "0.25 Acre Farmland (100 Trees)", parsed["location"], parsed["budget"],
-            score, lead_status, created_at, parsed["timeline"], parsed["token_paid"], "Sarah Jenkins"
-        ))
-        for ins in insights:
-            cursor.execute("INSERT INTO ai_insights (lead_id, insight) VALUES (?, ?)", (new_lead_id, ins))
-            
-        # Update call record with newly generated lead_id
-        cursor.execute("UPDATE calls SET lead_id = ? WHERE id = ?", (new_lead_id, call_id))
-        
-    conn.commit()
-    conn.close()
-    
-    # Sync to Firestore
-    sync_lead_to_firestore(lead_id or new_lead_id)
-    
-    return jsonify({"success": True, "call_id": call_id, "lead_id": lead_id or new_lead_id}), 200
+    try:
+        resolved_lead_id = save_and_sync_call_data(
+            call_id=call_id,
+            lead_id=lead_id,
+            phone=phone,
+            transcript_text=transcript_text,
+            duration=duration,
+            recording_url=recording_url
+        )
+        return jsonify({"success": True, "call_id": call_id, "lead_id": resolved_lead_id}), 200
+    except Exception as e:
+        print(f"Error processing webhook: {str(e)}", flush=True)
+        return jsonify({"error": str(e)}), 500
 
 
 # Start Flask server
