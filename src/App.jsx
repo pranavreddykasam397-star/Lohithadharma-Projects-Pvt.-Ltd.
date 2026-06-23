@@ -184,7 +184,11 @@ export default function App() {
         setIsSimulatedCall(false);
         setCallStatus('in-progress');
       } else {
-        toast("No Bland AI key configured. Running call in Simulation Mode.", "info");
+        if (data.error && data.error !== "No Bland AI key configured.") {
+          toast(`Bland AI API Error: ${data.error}. Running in Simulation Mode.`, "warning");
+        } else {
+          toast("No Bland AI key configured. Running call in Simulation Mode.", "info");
+        }
         setIsSimulatedCall(true);
         connectToCallStream(data.call_id);
       }

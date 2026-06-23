@@ -777,9 +777,9 @@ def trigger_call():
     bland_api_key = data.get("bland_api_key") or os.environ.get("BLAND_API_KEY")
     webhook_base = data.get("webhook_base_url") or os.environ.get("WEBHOOK_BASE_URL")
     
-    print(f"DEBUG: Trigger payload={data}")
-    print(f"DEBUG: BLAND_API_KEY in env={bool(os.environ.get('BLAND_API_KEY'))}")
-    print(f"DEBUG: bland_api_key resolved={bool(bland_api_key)}")
+    print(f"DEBUG: Trigger payload={data}", flush=True)
+    print(f"DEBUG: BLAND_API_KEY in env={bool(os.environ.get('BLAND_API_KEY'))}", flush=True)
+    print(f"DEBUG: bland_api_key resolved={bool(bland_api_key)}", flush=True)
     
     if not phone:
         return jsonify({"error": "Phone number is required"}), 400
@@ -798,9 +798,11 @@ def trigger_call():
         if row:
             lead_name = row["name"]
             
+    error_reason = None
+    
     # Check if we have Bland AI credentials for a real call
     if bland_api_key:
-        print(f"Triggering real call to {phone} via Bland AI...")
+        print(f"Triggering real call to {phone} via Bland AI...", flush=True)
         
         # Build prompt
         prompt = f"""You are a friendly, professional AI outbound calling agent for Lohitha Dharma Projects Pvt. Ltd., a premium managed Red Sandalwood farmland developer. 
@@ -870,12 +872,21 @@ Start the call by asking for their name and greeting them. Once you have collect
                 }), 201
         except urllib.error.HTTPError as e:
             err_body = e.read().decode('utf-8')
-            print(f"Bland AI trigger HTTP error: {e.code} - {e.reason}. Body: {err_body}")
-            print("Falling back to simulation mode...")
+            print(f"Bland AI trigger HTTP error: {e.code} - {e.reason}. Body: {err_body}", flush=True)
+            print("Falling back to simulation mode...", flush=True)
+            try:
+                err_json = json.loads(err_body)
+                error_reason = err_json.get("message") or err_json.get("error") or f"HTTP {e.code}: {e.reason}"
+            except:
+                error_reason = f"Bland AI HTTP {e.code}: {e.reason}"
         except Exception as e:
-            print(f"Bland AI trigger failed: {str(e)}. Falling back to simulation mode...")
+            print(f"Bland AI trigger failed: {str(e)}. Falling back to simulation mode...", flush=True)
+            error_reason = str(e)
             
     # Fallback to simulation mode if Bland AI call fails or key is missing
+    if not bland_api_key:
+        error_reason = "No Bland AI key configured."
+        
     cursor.execute('''
         INSERT INTO calls (id, lead_id, phone, status, transcript, recording_url, duration, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -895,7 +906,8 @@ Start the call by asking for their name and greeting them. Once you have collect
         "phone": phone,
         "lead_id": lead_id,
         "lead_name": lead_name,
-        "mode": "simulated"
+        "mode": "simulated",
+        "error": error_reason
     }), 201
 
 def run_call_simulation(call_id, lead_id, phone, lead_name):
