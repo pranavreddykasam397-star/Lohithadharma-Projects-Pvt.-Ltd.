@@ -547,6 +547,10 @@ def create_lead():
     }
     
     conn.close()
+    
+    # Sync to Firestore
+    sync_lead_to_firestore(lead_id)
+    
     return jsonify(new_lead), 201
 
 # PATCH /api/leads/<id>/status - Update lead stage
@@ -569,6 +573,9 @@ def update_lead_status(id):
     cursor.execute("UPDATE leads SET status = ? WHERE id = ?", (status, id))
     conn.commit()
     conn.close()
+    
+    # Sync to Firestore
+    sync_lead_to_firestore(id)
     
     return jsonify({"success": True, "updatedId": id, "status": status})
 
@@ -678,6 +685,77 @@ def format_phone_number(phone):
         return '+91' + cleaned
     else:
         return '+' + cleaned
+
+# ==========================================
+# Cloud Firestore Real-time Synchronization
+# ==========================================
+def to_firestore_value(val):
+    if isinstance(val, bool):
+        return {"booleanValue": val}
+    elif isinstance(val, int):
+        return {"integerValue": str(val)}
+    elif isinstance(val, float):
+        return {"doubleValue": val}
+    elif isinstance(val, list):
+        return {"arrayValue": {"values": [to_firestore_value(x) for x in val]}}
+    elif val is None:
+        return {"nullValue": None}
+    else:
+        return {"stringValue": str(val)}
+
+def to_firestore_fields(data_dict):
+    return {
+        "fields": {k: to_firestore_value(v) for k, v in data_dict.items()}
+    }
+
+def sync_lead_to_firestore(lead_id):
+    project_id = os.environ.get("FIREBASE_PROJECT_ID", "lohitha-dharma-project")
+    api_key = os.environ.get("FIREBASE_API_KEY", "AIzaSyCu63Ej-ViFR71ifFjDJWES0ylWjp1iZLQ")
+    
+    print(f"Firestore Sync: Fetching lead {lead_id} from SQLite to sync with Firestore...")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM leads WHERE id = ?", (lead_id,))
+    lead_row = cursor.fetchone()
+    
+    if not lead_row:
+        conn.close()
+        print(f"Firestore Sync Warning: Lead {lead_id} not found in SQLite.")
+        return False
+        
+    lead_data = dict(lead_row)
+    lead_data["token_paid"] = bool(lead_data["token_paid"])
+    lead_data["budget"] = int(lead_data["budget"])
+    lead_data["ai_score"] = int(lead_data["ai_score"])
+    
+    cursor.execute("SELECT insight FROM ai_insights WHERE lead_id = ?", (lead_id,))
+    insights = [r["insight"] for r in cursor.fetchall()]
+    lead_data["insights"] = insights
+    conn.close()
+    
+    # Send PATCH request to Cloud Firestore REST API
+    url = f"https://firestore.googleapis.com/v1/projects/{project_id}/databases/default/documents/leads/{lead_id}?key={api_key}"
+    payload = to_firestore_fields(lead_data)
+    req_data = json.dumps(payload).encode('utf-8')
+    
+    import urllib.request
+    try:
+        req = urllib.request.Request(
+            url,
+            data=req_data,
+            method="PATCH",
+            headers={
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        )
+        with urllib.request.urlopen(req) as response:
+            res_body = response.read().decode('utf-8')
+            print(f"Firestore Sync Success: Lead {lead_id} successfully synchronized in the cloud.")
+            return True
+    except Exception as e:
+        print(f"Firestore Sync Failure for Lead {lead_id}: {str(e)}")
+        return False
 
 @app.route('/api/calls', methods=['GET'])
 def get_calls():
@@ -928,6 +1006,9 @@ def run_call_simulation(call_id, lead_id, phone, lead_name):
     conn.commit()
     conn.close()
     
+    # Sync to Firestore
+    sync_lead_to_firestore(lead_id or new_lead_id)
+    
     active_simulations[call_id]["status"] = "completed"
     active_simulations[call_id]["completed"] = True
 
@@ -1046,6 +1127,9 @@ def calls_webhook():
         
     conn.commit()
     conn.close()
+    
+    # Sync to Firestore
+    sync_lead_to_firestore(lead_id or new_lead_id)
     
     return jsonify({"success": True, "call_id": call_id, "lead_id": lead_id or new_lead_id}), 200
 
