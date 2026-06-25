@@ -5,6 +5,13 @@ import { saveRecording, getRecordings, deleteRecording } from './audioStorage';
 
 const DEFAULT_API = 'http://localhost:5000';
 
+const LoadingContext = React.createContext({
+  isProcessingRemote: false,
+  setIsProcessingRemote: () => {},
+  remoteLoadingMsg: "",
+  setRemoteLoadingMsg: () => {}
+});
+
 export default function App() {
   // ─── Theme ───
   const [theme, setTheme] = useState(() => {
@@ -94,6 +101,9 @@ export default function App() {
   const [webhookBase, setWebhookBase] = useState(() => localStorage.getItem('webhook_base_url') || '');
   const [backendUrl, setBackendUrl] = useState(() => localStorage.getItem('backend_api_url') || DEFAULT_API);
   const sseRef = useRef(null);
+  const [isProcessingRemote, setIsProcessingRemote] = useState(false);
+  const [remoteLoadingMsg, setRemoteLoadingMsg] = useState("");
+  const [checkingRecordings, setCheckingRecordings] = useState({});
 
   const saveBlandKey = (val) => { setBlandKey(val); localStorage.setItem('bland_api_key', val); };
   const saveWebhookBase = (val) => { setWebhookBase(val); localStorage.setItem('webhook_base_url', val); };
@@ -144,6 +154,175 @@ export default function App() {
     } catch (err) {
       console.error("Error clearing call history:", err);
       toast("Error clearing history", "error");
+    }
+  };
+
+  // Smart Polling for Outbound Calls with Exponential Backoff (Fallback for Simulated & Primary for Real)
+  useEffect(() => {
+    if (!activeCallId || (callStatus !== 'in-progress' && callStatus !== 'ringing')) {
+      return;
+    }
+
+    let isSubscribed = true;
+    let timerId = null;
+    const startTime = Date.now();
+
+    const poll = async () => {
+      try {
+        const response = await fetch(`${backendUrl}/api/calls`);
+        if (!response.ok) throw new Error("Failed to fetch calls");
+        const calls = await response.json();
+        
+        if (!isSubscribed) return;
+
+        // Find the active call in the history
+        const activeCall = calls.find(c => c.id === activeCallId);
+        
+        if (activeCall) {
+          if (activeCall.status === 'completed' || activeCall.status === 'failed') {
+            setCallStatus(activeCall.status);
+            toast(`Call status updated: ${activeCall.status}`, activeCall.status === 'completed' ? 'success' : 'error');
+            fetchCallsHistory();
+            return; // Stop polling
+          }
+        }
+      } catch (err) {
+        console.error("Error polling call status:", err);
+      }
+
+      // Schedule next poll based on elapsed time (exponential backoff)
+      const elapsed = Date.now() - startTime;
+      const interval = elapsed < 10000 ? 2000 : 5000;
+      
+      if (isSubscribed) {
+        timerId = setTimeout(poll, interval);
+      }
+    };
+
+    // Start first poll
+    const elapsed = Date.now() - startTime;
+    const interval = elapsed < 10000 ? 2000 : 5000;
+    timerId = setTimeout(poll, interval);
+
+    return () => {
+      isSubscribed = false;
+      if (timerId) clearTimeout(timerId);
+    };
+  }, [activeCallId, callStatus, backendUrl]);
+
+  // Check recording availability when expandedCallId is set
+  useEffect(() => {
+    if (expandedCallId && callsHistory.length > 0) {
+      const call = callsHistory.find(c => c.id === expandedCallId);
+      if (call && call.recording_url && !checkingRecordings[call.id]) {
+        checkRecordingAvailability(call.id, call.recording_url);
+      }
+    }
+  }, [expandedCallId, callsHistory]);
+
+  const checkRecordingAvailability = async (callId, url) => {
+    setCheckingRecordings(prev => ({ ...prev, [callId]: 'checking' }));
+    try {
+      const response = await fetch(`${backendUrl}/api/calls/proxy-recording?url=${encodeURIComponent(url)}`, {
+        method: 'GET',
+        headers: { 'Range': 'bytes=0-1' }
+      });
+      
+      if (response.status === 200 || response.status === 206) {
+        const contentLength = response.headers.get('Content-Length');
+        if (contentLength === '0') {
+          setCheckingRecordings(prev => ({ ...prev, [callId]: 'not-ready' }));
+          setTimeout(() => checkRecordingAvailability(callId, url), 3000);
+        } else {
+          setCheckingRecordings(prev => ({ ...prev, [callId]: 'ready' }));
+        }
+      } else {
+        setCheckingRecordings(prev => ({ ...prev, [callId]: 'not-ready' }));
+        setTimeout(() => checkRecordingAvailability(callId, url), 3000);
+      }
+    } catch (err) {
+      console.error("Error checking recording availability:", err);
+      setCheckingRecordings(prev => ({ ...prev, [callId]: 'not-ready' }));
+      setTimeout(() => checkRecordingAvailability(callId, url), 5000);
+    }
+  };
+
+  const processRemoteRecording = async (recordingUrl, callId) => {
+    if (!recordingUrl) {
+      toast("No recording URL found for this call.", "error");
+      return;
+    }
+
+    const confirmProcess = window.confirm("Process this recording with Lohith AI?");
+    if (!confirmProcess) return;
+
+    // Redirect to Voice Capture tab
+    setTab('voice-capture');
+
+    setIsProcessingRemote(true);
+    setRemoteLoadingMsg("Preparing audio from Bland AI...");
+
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    const runProcessing = async () => {
+      try {
+        attempts++;
+        const proxyUrl = `${backendUrl}/api/calls/proxy-recording?url=${encodeURIComponent(recordingUrl)}`;
+        
+        const response = await fetch(proxyUrl);
+        if (!response.ok) {
+          if (response.status === 202 || response.status === 404) {
+            throw new Error("Recording is still being prepared by Bland AI.");
+          }
+          throw new Error(`Failed to download audio recording (HTTP ${response.status})`);
+        }
+
+        const blob = await response.blob();
+        if (blob.size === 0) {
+          throw new Error("Recording file is empty (0 bytes).");
+        }
+
+        const fileName = `call-recording-${callId || 'unknown'}.mp3`;
+        const fileMime = response.headers.get('Content-Type') || 'audio/mpeg';
+        const file = new File([blob], fileName, { type: fileMime });
+
+        setRemoteLoadingMsg("Running Gemini transcription & analysis...");
+        
+        // Transcribe (skip storage confirmation prompt)
+        const transcriptText = await processFile(file, true);
+        
+        if (!transcriptText || !transcriptText.trim()) {
+          throw new Error("Transcription resulted in empty text.");
+        }
+
+        setRemoteLoadingMsg("Running Gemini details extraction...");
+        
+        // Auto-extract details
+        await extractDetails(transcriptText);
+        
+        toast("Recording processed successfully with Gemini!", "success");
+      } catch (err) {
+        console.error(`Attempt ${attempts} failed:`, err);
+        if (attempts < maxAttempts) {
+          setRemoteLoadingMsg(`Extraction failed. Retrying in 5 seconds... (Attempt ${attempts}/${maxAttempts})`);
+          toast("Extraction failed. Retrying in 5 seconds...", "warning");
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          return runProcessing();
+        } else {
+          throw new Error(err.message || "Failed to process recording after multiple attempts.");
+        }
+      }
+    };
+
+    try {
+      await runProcessing();
+    } catch (err) {
+      console.error("Error processing remote recording:", err);
+      toast(err.message, "error");
+    } finally {
+      setIsProcessingRemote(false);
+      setRemoteLoadingMsg("");
     }
   };
 
@@ -478,70 +657,115 @@ export default function App() {
   };
 
   // ─── Audio File Processing ───
-  const processFile = (file) => {
-    if (!file) return;
-
-    // Ask for consent to store locally
-    const shouldStore = window.confirm(`Would you like to store "${file.name}" locally on your computer for 30 days? This will allow you to play and backup this recording later.`);
-
-    const key = localStorage.getItem('gemini_api_key') || '';
-    toast(`Processing ${file.name}...`, 'info');
-    setAnalyzing(true);
-
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataURL = reader.result;
-      const b64 = dataURL.split(',')[1];
-
-      // If user accepted, save to IndexedDB
-      if (shouldStore) {
-        try {
-          await saveRecording(file.name, dataURL);
-          toast('Recording saved locally for 30 days.', 'success');
-          loadLocalRecordings();
-        } catch (err) {
-          console.error("Failed to store recording:", err);
-          toast('Failed to store recording locally.', 'error');
-        }
+  const processFile = (file, skipConfirmStore = false) => {
+    return new Promise((resolve, reject) => {
+      if (!file) {
+        reject(new Error("No file provided"));
+        return;
       }
 
-      if (key) {
-        try {
-          let mime = file.type || '';
-          if (!mime || mime === 'application/octet-stream') {
-            const ext = file.name.split('.').pop().toLowerCase();
-            const map = { aac: 'audio/aac', mp3: 'audio/mp3', wav: 'audio/wav', m4a: 'audio/m4a', ogg: 'audio/ogg', opus: 'audio/opus', webm: 'audio/webm', flac: 'audio/flac' };
-            mime = map[ext] || 'audio/mp3';
+      // Ask for consent to store locally (skip if requested)
+      const shouldStore = skipConfirmStore ? false : window.confirm(`Would you like to store "${file.name}" locally on your computer for 30 days? This will allow you to play and backup this recording later.`);
+
+      const key = localStorage.getItem('gemini_api_key') || '';
+      toast(`Processing ${file.name}...`, 'info');
+      setAnalyzing(true);
+
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const dataURL = reader.result;
+        const b64 = dataURL.split(',')[1];
+
+        // If user accepted, save to IndexedDB
+        if (shouldStore) {
+          try {
+            await saveRecording(file.name, dataURL);
+            toast('Recording saved locally for 30 days.', 'success');
+            loadLocalRecordings();
+          } catch (err) {
+            console.error("Failed to store recording:", err);
+            toast('Failed to store recording locally.', 'error');
           }
-          const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ inlineData: { mimeType: mime, data: b64 } }, { text: "This is a real estate call recording. The speakers might speak in English, Telugu, or Hindi. Please transcribe and translate the entire conversation directly into English. Format the transcript as a dialogue with speakers labeled as 'Agent:' and 'Investor:'. The entire output MUST be in English." }] }] }) });
-          if (!r.ok) throw new Error();
-          const j = await r.json();
-          setTranscript(j.candidates[0].content.parts[0].text);
-          setDetLang('Auto-Detected (Lohith AI)');
-          toast('Transcribed!', 'success');
-        } catch {
-          toast('Transcription failed.', 'error');
-        } finally {
-          setAnalyzing(false);
         }
-      } else {
-        setTimeout(() => {
-          setAnalyzing(false);
-          playPreset('en-IN');
-        }, 1500);
-      }
-    };
-    reader.onerror = () => {
-      toast('File read error.', 'error');
-      setAnalyzing(false);
-    };
-    reader.readAsDataURL(file);
+
+        if (key) {
+          try {
+            let mime = file.type || '';
+            if (!mime || mime === 'application/octet-stream') {
+              const ext = file.name.split('.').pop().toLowerCase();
+              const map = { aac: 'audio/aac', mp3: 'audio/mp3', wav: 'audio/wav', m4a: 'audio/m4a', ogg: 'audio/ogg', opus: 'audio/opus', webm: 'audio/webm', flac: 'audio/flac' };
+              mime = map[ext] || 'audio/mp3';
+            }
+            const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, { 
+              method: 'POST', 
+              headers: { 'Content-Type': 'application/json' }, 
+              body: JSON.stringify({ 
+                contents: [{ 
+                  parts: [
+                    { inlineData: { mimeType: mime, data: b64 } }, 
+                    { text: "This is a real estate call recording. The speakers might speak in English, Telugu, or Hindi. Please transcribe and translate the entire conversation directly into English. Format the transcript as a dialogue with speakers labeled as 'Agent:' and 'Investor:'. The entire output MUST be in English." }
+                  ] 
+                }] 
+              }) 
+            });
+            if (!r.ok) throw new Error("Gemini API call failed");
+            const j = await r.json();
+            const text = j.candidates[0].content.parts[0].text;
+            setTranscript(text);
+            setDetLang('Auto-Detected (Lohith AI)');
+            toast('Transcribed!', 'success');
+            resolve(text);
+          } catch (err) {
+            toast('Transcription failed.', 'error');
+            reject(err);
+          } finally {
+            setAnalyzing(false);
+          }
+        } else {
+          // Fallback if no key is configured
+          setTimeout(() => {
+            setAnalyzing(false);
+            const presets = {
+              'en-IN': { text: `Agent: Hello, welcome to Lohitha Dharma Projects. May I have your name, please?\nInvestor: Hello, this is Suresh Naidu.\nAgent: Hello Suresh, which location/project are you looking at?\nInvestor: I am interested in purchasing a farmland plot in Nellore Greenlands.\nAgent: Nellore Greenlands is a beautiful choice. What is your email address?\nInvestor: My email is suresh.naidu@techcorp.in.\nAgent: What is your estimated investment budget?\nInvestor: My budget is around 75 Lakhs.\nAgent: Great, when are you planning to register the land?\nInvestor: I want to proceed with the registration within 3 months.\nAgent: Has the advance booking token payment been made?\nInvestor: Yes, my advance booking is sorted.`, lang: 'English (Auto-Detected)' }
+            };
+            const p = presets['en-IN'];
+            setTranscript(p.text);
+            setDetLang(p.lang);
+            resolve(p.text);
+          }, 1500);
+        }
+      };
+      reader.onerror = () => {
+        toast('File read error.', 'error');
+        setAnalyzing(false);
+        reject(new Error("File read error"));
+      };
+      reader.readAsDataURL(file);
+    });
   };
 
-  const onUpload = (e) => { const f = e.target.files[0]; if (f) { processFile(f); e.target.value = ''; } };
-  const onDragOver = (e) => { e.preventDefault(); setDragging(true); };
-  const onDragLeave = (e) => { e.preventDefault(); setDragging(false); };
-  const onDrop = (e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f && (f.type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg|opus|webm|flac)$/i.test(f.name))) processFile(f); else toast('Upload an audio file.', 'error'); };
+  const onUpload = (e) => { 
+    if (analyzing) return;
+    const f = e.target.files[0]; 
+    if (f) { processFile(f); e.target.value = ''; } 
+  };
+  const onDragOver = (e) => { 
+    e.preventDefault(); 
+    if (analyzing) return;
+    setDragging(true); 
+  };
+  const onDragLeave = (e) => { 
+    e.preventDefault(); 
+    setDragging(false); 
+  };
+  const onDrop = (e) => { 
+    e.preventDefault(); 
+    setDragging(false); 
+    if (analyzing) return;
+    const f = e.dataTransfer.files[0]; 
+    if (f && (f.type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg|opus|webm|flac)$/i.test(f.name))) processFile(f); 
+    else toast('Upload an audio file.', 'error'); 
+  };
 
   // ─── Recording ───
   const startRec = () => {
@@ -573,28 +797,56 @@ export default function App() {
   const stopRec = () => { if (recRef.current) recRef.current.stop(); setRecording(false); toast('Stopped.', 'success'); };
 
   // ─── Extract from Transcript ───
-  const extractDetails = async () => {
-    if (!transcript.trim()) { toast('No transcript to analyze.', 'error'); return; }
+  const extractDetails = async (transcriptText = null) => {
+    const textToAnalyze = transcriptText !== null ? transcriptText : transcript;
+    if (!textToAnalyze || !textToAnalyze.trim()) { toast('No transcript to analyze.', 'error'); return; }
     setAnalyzing(true);
     const key = localStorage.getItem('gemini_api_key') || '';
     if (key) {
       try {
         toast('Extracting with Lohith AI...', 'info');
-        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: `Analyze this customer call transcript:\n"${transcript}"\n\nExtract and return ONLY a valid JSON object:\n{"name": string, "email": string|null, "budget": number, "location": string (one of: "Kadapa Valley (Phase I & II)", "Tirupati Foothills", "Chittoor Reserve", "Nellore Greenlands", "Rayalaseema Orchards"), "timeline": string (one of: "Immediate (< 1 month)", "1 - 3 months", "3 - 6 months", "6+ months"), "token_paid": boolean}\nNo markdown wrapping.` }] }] }) });
-        if (!r.ok) throw new Error();
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ 
+            contents: [{ 
+              parts: [{ 
+                text: `Analyze this customer call transcript:\n"${textToAnalyze}"\n\nExtract and return ONLY a valid JSON object:\n{"name": string, "email": string|null, "budget": number, "location": string (one of: "Kadapa Valley (Phase I & II)", "Tirupati Foothills", "Chittoor Reserve", "Nellore Greenlands", "Rayalaseema Orchards"), "timeline": string (one of: "Immediate (< 1 month)", "1 - 3 months", "3 - 6 months", "6+ months"), "token_paid": boolean}\nNo markdown wrapping.` 
+              }] 
+            }] 
+          }) 
+        });
+        if (!r.ok) throw new Error("Gemini extraction failed");
         const j = await r.json();
         let c = j.candidates[0].content.parts[0].text;
         if (c.startsWith('```')) c = c.replace(/^```(?:json)?\n/, '').replace(/\n```$/, '').trim();
-        setExtracted(JSON.parse(c.trim()));
-        toast('Details extracted!', 'success'); return;
-      } catch { toast('Lohith AI failed, using local parser.', 'warning'); }
+        const parsed = JSON.parse(c.trim());
+        setExtracted(parsed);
+        toast('Details extracted!', 'success'); 
+        return parsed;
+      } catch (err) { 
+        console.error("Lohith AI extraction failed:", err);
+        toast('Lohith AI failed, using local parser.', 'warning'); 
+      }
       finally { setAnalyzing(false); }
     }
     try {
-      const r = await fetch(`${backendUrl}/api/leads/process-audio`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transcript }) });
-      if (!r.ok) throw new Error();
-      setExtracted(await r.json()); toast('Extracted!', 'success');
-    } catch { setExtracted(parseOffline(transcript)); toast('Extracted locally.', 'success'); }
+      const r = await fetch(`${backendUrl}/api/leads/process-audio`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ transcript: textToAnalyze }) 
+      });
+      if (!r.ok) throw new Error("Offline endpoint failed");
+      const data = await r.json();
+      setExtracted(data); 
+      toast('Extracted!', 'success');
+      return data;
+    } catch { 
+      const data = parseOffline(textToAnalyze);
+      setExtracted(data); 
+      toast('Extracted locally.', 'success'); 
+      return data;
+    }
     finally { setAnalyzing(false); }
   };
 
@@ -683,7 +935,8 @@ export default function App() {
   // RENDER
   // ════════════════════════════════════════
   return (
-    <div className="h-screen w-screen flex bg-app-bg text-app-text antialiased font-sans overflow-hidden">
+    <LoadingContext.Provider value={{ isProcessingRemote, setIsProcessingRemote, remoteLoadingMsg, setRemoteLoadingMsg }}>
+      <div className="h-screen w-screen flex bg-app-bg text-app-text antialiased font-sans overflow-hidden">
 
       {/* ── Toasts ── */}
       <div className="fixed top-4 right-4 z-[60] flex flex-col gap-2 pointer-events-none">
@@ -991,7 +1244,17 @@ export default function App() {
               {/* Upload */}
               <div className="bg-app-panel border border-app-border rounded-xl p-5 space-y-4 shadow-sm">
                 <div className="text-xs font-semibold text-app-text">Upload Recording</div>
-                <div onClick={() => fileRef.current?.click()} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all ${dragging ? 'border-app-accent bg-app-accent/5' : 'border-app-border hover:border-app-accent bg-app-input/30'}`}>
+                <div 
+                  onClick={() => { if (!analyzing) fileRef.current?.click(); }} 
+                  onDragOver={onDragOver} 
+                  onDragLeave={onDragLeave} 
+                  onDrop={onDrop} 
+                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-all ${
+                    analyzing ? 'border-app-border/40 bg-app-input/10 cursor-not-allowed opacity-50' :
+                    dragging ? 'border-app-accent bg-app-accent/5 cursor-pointer' : 
+                    'border-app-border hover:border-app-accent bg-app-input/30 cursor-pointer'
+                  }`}
+                >
                   <div className="text-2xl mb-1">📁</div>
                   <div className="text-xs font-medium text-app-text">{dragging ? 'Drop here' : 'Click or drag audio'}</div>
                   <div className="text-[10px] text-app-muted mt-0.5">MP3, WAV, M4A, AAC</div>
@@ -1000,7 +1263,14 @@ export default function App() {
                 <div className="text-[10px] font-semibold text-app-muted uppercase tracking-wider">Or load a preset</div>
                 <div className="flex gap-2">
                   {[['en-IN','English'],['te-IN','Telugu'],['hi-IN','Hindi']].map(([c,l]) => (
-                    <button key={c} onClick={() => playPreset(c)} className="btn-ghost text-[10px] flex-1 cursor-pointer">{l}</button>
+                    <button 
+                      key={c} 
+                      onClick={() => playPreset(c)} 
+                      disabled={analyzing}
+                      className="btn-ghost text-[10px] flex-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {l}
+                    </button>
                   ))}
                 </div>
               </div>
@@ -1157,7 +1427,7 @@ export default function App() {
                         <div className="flex items-center gap-2">
                           <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
                           <span className="text-[11px] font-bold text-stone-300 uppercase tracking-wider flex items-center gap-2">
-                            {callStatus === 'ringing' ? 'Ringing...' : callStatus === 'in-progress' ? 'Call in progress' : 'Call completed'}
+                            {callStatus === 'ringing' ? 'Ringing...' : callStatus === 'in-progress' ? 'Waiting for call recording' : 'Call completed'}
                             {isSimulatedCall && (
                               <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 text-[9px] font-bold lowercase tracking-normal border border-amber-500/20">
                                 simulated
@@ -1214,13 +1484,13 @@ export default function App() {
                         )}
                         {liveTurns.length === 0 && !isSimulatedCall && callStatus === 'in-progress' && (
                           <div className="text-[#9B918A] text-center pt-12 space-y-4">
-                            <div className="text-emerald-400 text-sm font-bold animate-pulse flex items-center justify-center gap-2">
-                              <span>🟢</span> Live Call Active via Bland AI
+                            <div className="text-amber-400 text-sm font-bold animate-pulse flex items-center justify-center gap-2">
+                              <span>⏳</span> Waiting for call recording...
                             </div>
                             <div className="max-w-xs mx-auto text-stone-400 text-[10px] leading-relaxed font-sans bg-[#24201D] p-4 rounded-xl border border-[#3E3834]">
-                              Speak with the AI agent on your phone now. 
+                              The call has been processed and initiated. 
                               <br/><br/>
-                              Bland AI will dynamically collect registration details, budget, and location. The full transcript, call duration, and qualified lead metrics will update in the CRM automatically once you hang up.
+                              We are currently waiting for the call recording and transcript from Bland AI. Once the customer hangs up, the callback payload containing the audio recording will be sent and updated here.
                             </div>
                           </div>
                         )}
@@ -1342,9 +1612,28 @@ export default function App() {
                                   <div className="p-3 bg-app-input border border-app-border rounded-lg text-xs leading-relaxed text-app-text space-y-1 max-h-[250px] overflow-y-auto whitespace-pre-wrap font-mono font-bold">
                                     {call.transcript ? call.transcript : "No transcript recorded."}
                                     {call.recording_url && (
-                                      <div className="mt-3 pt-3 border-t border-app-border">
+                                      <div className="mt-3 pt-3 border-t border-app-border space-y-3">
                                         <div className="text-[10px] text-app-muted uppercase font-sans tracking-wider mb-1">Call Recording:</div>
-                                        <audio src={call.recording_url} controls className="w-full h-8" />
+                                        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                          <audio src={call.recording_url} controls className="w-full h-8 flex-1" />
+                                          {checkingRecordings[call.id] === 'checking' || checkingRecordings[call.id] === 'not-ready' ? (
+                                            <button 
+                                              disabled 
+                                              className="px-3 py-1.5 bg-app-input border border-app-border rounded-lg text-[10px] text-app-muted font-semibold flex items-center gap-1.5 cursor-not-allowed"
+                                            >
+                                              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse animate-duration-1000"></span>
+                                              Preparing audio...
+                                            </button>
+                                          ) : (
+                                            <button 
+                                              onClick={() => processRemoteRecording(call.recording_url, call.id)}
+                                              disabled={analyzing || isProcessingRemote}
+                                              className="px-3 py-1.5 bg-app-accent/20 hover:bg-app-accent/35 border border-app-accent text-emerald-300 rounded-lg text-[10px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                            >
+                                              ✨ Process with Lohith AI
+                                            </button>
+                                          )}
+                                        </div>
                                       </div>
                                     )}
                                   </div>
@@ -1517,7 +1806,24 @@ export default function App() {
           </div>
         </div>
       )}
+      {isProcessingRemote && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[60] flex flex-col items-center justify-center p-6 transition-all duration-300">
+          <div className="bg-app-panel border border-app-border rounded-2xl p-8 max-w-sm w-full text-center space-y-4 shadow-2xl">
+            <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full border-4 border-app-accent/25 animate-ping"></div>
+              <div className="absolute inset-0 rounded-full border-4 border-app-accent border-t-transparent animate-spin"></div>
+              <span className="text-2xl">🤖</span>
+            </div>
+            <h3 className="text-sm font-bold text-app-text animate-pulse">Lohith AI Analysis</h3>
+            <p className="text-xs text-app-muted font-medium">{remoteLoadingMsg || "Processing recording..."}</p>
+            <div className="text-[10px] text-app-muted italic bg-app-input/50 py-1.5 px-3 rounded-lg border border-app-border">
+              Analyzing call structure and extracting lead details. Please don't close the application.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+    </LoadingContext.Provider>
   );
 }
 

@@ -912,7 +912,10 @@ def save_and_sync_call_data(call_id, lead_id, phone, transcript_text, duration, 
     if call_exists:
         cursor.execute('''
             UPDATE calls 
-            SET status = 'completed', transcript = ?, recording_url = ?, duration = ?
+            SET status = 'completed', 
+                transcript = ?, 
+                recording_url = CASE WHEN recording_url IS NULL OR recording_url = '' THEN ? ELSE recording_url END, 
+                duration = ?
             WHERE id = ?
         ''', (transcript_text, recording_url, duration, call_id))
     else:
@@ -987,7 +990,7 @@ def sync_active_calls_from_bland():
         cursor.execute("""
             SELECT id, lead_id, phone, created_at 
             FROM calls 
-            WHERE status IN ('in-progress', 'ringing') 
+            WHERE (status IN ('in-progress', 'ringing') OR (status = 'completed' AND (recording_url IS NULL OR recording_url = '')))
               AND id NOT LIKE 'CALL-%' 
               AND datetime(created_at) > datetime('now', '-2 hours')
         """)
@@ -1099,6 +1102,65 @@ def clear_call_history():
         conn.close()
         return jsonify({"success": True, "message": "Call history cleared successfully"}), 200
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/calls/proxy-recording', methods=['GET'])
+def proxy_recording():
+    url = request.args.get("url")
+    if not url:
+        return jsonify({"error": "URL parameter is required"}), 400
+        
+    from urllib.parse import urlparse
+    parsed_url = urlparse(url)
+    if parsed_url.netloc not in ("api.bland.ai", "www.soundhelix.com"):
+        print(f"SECURITY WARNING: Attempt to proxy non-whitelisted URL: {url}", flush=True)
+        return jsonify({"error": "Unauthorized target domain. Only api.bland.ai and www.soundhelix.com are allowed."}), 403
+        
+    print(f"Proxying recording request from Bland AI: {url}", flush=True)
+    
+    import requests
+    from flask import Response
+    
+    try:
+        response = requests.get(
+            url,
+            stream=True,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            },
+            timeout=15
+        )
+        
+        # Gracefully handle 404 or 202 if recording is not yet ready/available
+        if response.status_code in (404, 202):
+            print(f"Recording not ready yet on Bland AI (HTTP {response.status_code}) for URL {url}", flush=True)
+            return jsonify({"error": "Recording is not yet ready or available on Bland AI."}), response.status_code
+            
+        response.raise_for_status()
+        
+        mime_type = response.headers.get('Content-Type') or 'audio/mpeg'
+        content_length = response.headers.get('Content-Length')
+        
+        res = Response(
+            response.iter_content(chunk_size=8192),
+            mimetype=mime_type,
+            direct_passthrough=True
+        )
+        
+        if content_length:
+            res.headers['Content-Length'] = content_length
+        res.headers['Access-Control-Allow-Origin'] = '*'
+        return res
+        
+    except requests.exceptions.HTTPError as e:
+        status_code = e.response.status_code if e.response is not None else 500
+        print(f"Proxy HTTP Error from Bland AI: {status_code} for URL {url}", flush=True)
+        return jsonify({"error": f"Recording not ready or not found on Bland AI (HTTP {status_code})"}), status_code
+    except requests.exceptions.Timeout as e:
+        print(f"Proxy network timeout for URL {url}", flush=True)
+        return jsonify({"error": "Network timeout connecting to Bland AI audio server."}), 504
+    except Exception as e:
+        print(f"Proxy Failed: {str(e)}", flush=True)
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/calls/trigger', methods=['POST'])
@@ -1395,7 +1457,12 @@ def sim_stream(call_id):
                 
             time.sleep(1.0)
             
-    return Response(event_generator(), mimetype='text/event-stream')
+    res = Response(event_generator(), mimetype='text/event-stream')
+    res.headers['X-Accel-Buffering'] = 'no'
+    res.headers['Cache-Control'] = 'no-cache'
+    res.headers['Connection'] = 'keep-alive'
+    res.headers['Access-Control-Allow-Origin'] = '*'
+    return res
 
 @app.route('/api/calls/webhook', methods=['POST'])
 def calls_webhook():
