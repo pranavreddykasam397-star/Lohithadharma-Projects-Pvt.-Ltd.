@@ -810,6 +810,29 @@ def format_phone_number(phone):
     else:
         return '+' + cleaned
 
+def extract_call_duration(payload):
+    if not payload:
+        return 0
+    call_length = payload.get("call_length")
+    duration = payload.get("duration")
+    
+    if call_length is not None:
+        try:
+            return int(float(call_length) * 60)
+        except:
+            pass
+            
+    if duration is not None:
+        try:
+            val = float(duration)
+            if val < 10:  # Assume minutes if duration is less than 10
+                return int(val * 60)
+            return int(val)
+        except:
+            pass
+            
+    return 0
+
 # ==========================================
 # Cloud Firestore Real-time Synchronization
 # ==========================================
@@ -1031,11 +1054,7 @@ def sync_active_calls_from_bland():
                 bland_status = res_json.get("status")
                 transcript = res_json.get("concatenated_transcript") or res_json.get("transcript")
                 recording_url = res_json.get("recording_url") or res_json.get("recording") or ""
-                duration = res_json.get("call_length") or res_json.get("duration") or 0
-                try:
-                    duration = int(float(duration))
-                except:
-                    duration = 0
+                duration = extract_call_duration(res_json)
                 
                 print(f"Call {call_id} Bland AI status: {bland_status}, transcript length: {len(transcript) if transcript else 0}", flush=True)
                 
@@ -1231,6 +1250,7 @@ Start the call by asking for their name and greeting them. Once you have collect
             "voice": "nat",
             "language": "en",
             "webhook": webhook_url,
+            "record": True,
             "metadata": {
                 "lead_id": lead_id,
                 "call_id": call_id
@@ -1472,7 +1492,7 @@ def calls_webhook():
     # Bland AI webhook fields mapping (handles both Bland AI format and our simulation format)
     phone = data.get("phone_number") or data.get("phone")
     transcript_text = data.get("concatenated_transcript") or data.get("transcript")
-    duration = int(data.get("duration", 60))
+    duration = extract_call_duration(data)
     recording_url = data.get("recording_url") or data.get("recording", "")
     
     metadata = data.get("metadata") or {}
