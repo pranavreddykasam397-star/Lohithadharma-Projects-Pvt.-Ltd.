@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { db, initFirebaseSeeds, auth } from './firebase';
 import { collection, getDocs, getDoc, doc, setDoc, updateDoc, onSnapshot, query, orderBy, deleteDoc } from 'firebase/firestore';
-import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut } from 'firebase/auth';
+import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { saveRecording, getRecordings, deleteRecording } from './audioStorage';
 import LohithLoader from './LohithLoader';
 
@@ -110,6 +110,9 @@ export default function App() {
   const [blandKey, setBlandKey] = useState(() => localStorage.getItem('bland_api_key') || '');
   const [webhookBase, setWebhookBase] = useState(() => localStorage.getItem('webhook_base_url') || '');
   const [backendUrl, setBackendUrl] = useState(() => localStorage.getItem('backend_api_url') || DEFAULT_API);
+  const [emailjsServiceId, setEmailjsServiceId] = useState(() => localStorage.getItem('emailjs_service_id') || '');
+  const [emailjsTemplateId, setEmailjsTemplateId] = useState(() => localStorage.getItem('emailjs_template_id') || '');
+  const [emailjsPublicKey, setEmailjsPublicKey] = useState(() => localStorage.getItem('emailjs_public_key') || '');
   const sseRef = useRef(null);
   const [isProcessingRemote, setIsProcessingRemote] = useState(false);
   const [remoteLoadingMsg, setRemoteLoadingMsg] = useState("");
@@ -117,6 +120,9 @@ export default function App() {
   const saveBlandKey = (val) => { setBlandKey(val); localStorage.setItem('bland_api_key', val); };
   const saveWebhookBase = (val) => { setWebhookBase(val); localStorage.setItem('webhook_base_url', val); };
   const saveBackendUrl = (val) => { setBackendUrl(val); localStorage.setItem('backend_api_url', val); };
+  const saveEmailjsServiceId = (val) => { setEmailjsServiceId(val); localStorage.setItem('emailjs_service_id', val); };
+  const saveEmailjsTemplateId = (val) => { setEmailjsTemplateId(val); localStorage.setItem('emailjs_template_id', val); };
+  const saveEmailjsPublicKey = (val) => { setEmailjsPublicKey(val); localStorage.setItem('emailjs_public_key', val); };
 
   const fetchCallsHistory = async () => {
     setLoadingCalls(true);
@@ -1016,8 +1022,11 @@ export default function App() {
     return (
       <LoginPage 
         onAuthSuccess={(u) => setUser(u)} 
-        backendUrl={AUTH_API} 
+        backendUrl={backendUrl} 
         toast={toast} 
+        emailjsServiceId={emailjsServiceId}
+        emailjsTemplateId={emailjsTemplateId}
+        emailjsPublicKey={emailjsPublicKey}
       />
     );
   }
@@ -1925,6 +1934,48 @@ export default function App() {
                 </p>
               </div>
 
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-app-text">EmailJS Service ID</label>
+                <input 
+                  type="text" 
+                  value={emailjsServiceId} 
+                  onChange={e => saveEmailjsServiceId(e.target.value)} 
+                  placeholder="service_xxxxxx" 
+                  className="w-full bg-app-input border border-app-border rounded-lg p-2.5 text-xs text-app-text focus:outline-none focus:border-app-accent" 
+                />
+                <p className="text-[10px] text-app-muted mt-1 leading-relaxed">
+                  The Service ID from your EmailJS dashboard.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-app-text">EmailJS Template ID</label>
+                <input 
+                  type="text" 
+                  value={emailjsTemplateId} 
+                  onChange={e => saveEmailjsTemplateId(e.target.value)} 
+                  placeholder="template_xxxxxx" 
+                  className="w-full bg-app-input border border-app-border rounded-lg p-2.5 text-xs text-app-text focus:outline-none focus:border-app-accent" 
+                />
+                <p className="text-[10px] text-app-muted mt-1 leading-relaxed">
+                  Template ID. Must contain template variables `{{to_email}}` and `{{otp_code}}`.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-app-text">EmailJS Public Key</label>
+                <input 
+                  type="text" 
+                  value={emailjsPublicKey} 
+                  onChange={e => saveEmailjsPublicKey(e.target.value)} 
+                  placeholder="user_xxxxxxxxxxxx or public_key" 
+                  className="w-full bg-app-input border border-app-border rounded-lg p-2.5 text-xs text-app-text focus:outline-none focus:border-app-accent" 
+                />
+                <p className="text-[10px] text-app-muted mt-1 leading-relaxed">
+                  Your EmailJS account Public Key.
+                </p>
+              </div>
+
               <button onClick={() => { setSettingsModal(false); toast("Settings saved!", "success"); }} className="w-full btn-primary py-2.5 text-xs font-bold cursor-pointer">
                 Save & Close
               </button>
@@ -2163,15 +2214,26 @@ function LocalAudioPlayer({ rec, downloadRecording, removeStoredRecording }) {
 }
 
 // ─── LoginPage Component ───
-function LoginPage({ onAuthSuccess, backendUrl, toast }) {
+function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjsTemplateId, emailjsPublicKey }) {
   const [activeTab, setActiveTab] = useState('otp'); // 'otp', 'password', 'forgot'
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [password, setPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState('');
+  const [storedOtp, setStoredOtp] = useState('');
+  const [otpCreatedAt, setOtpCreatedAt] = useState(null);
+
+  const getClientCredential = async (userEmail) => {
+    const secret = 'lohitha-dharma-crm-client-auth-token-v1';
+    const encoder = new TextEncoder();
+    const data = encoder.encode(userEmail.trim().toLowerCase() + secret);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return hashHex + 'aA1!'; // Append to meet typical strong password requirements
+  };
 
   const handleSendOTP = async (e) => {
     if (e) e.preventDefault();
@@ -2180,18 +2242,43 @@ function LoginPage({ onAuthSuccess, backendUrl, toast }) {
       return;
     }
     setIsLoading(true);
-    setLoadingMsg("Sending verification code...");
+    setLoadingMsg("Generating verification code...");
     try {
-      const res = await fetch(`${backendUrl}/sendOtp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim() })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to send verification code.");
+      const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+      setStoredOtp(generatedOtp);
+      setOtpCreatedAt(Date.now());
+
+      if (emailjsServiceId && emailjsTemplateId && emailjsPublicKey) {
+        setLoadingMsg("Sending OTP via EmailJS...");
+        const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            service_id: emailjsServiceId,
+            template_id: emailjsTemplateId,
+            user_id: emailjsPublicKey,
+            template_params: {
+              to_email: email.trim(),
+              otp_code: generatedOtp
+            }
+          })
+        });
+
+        if (!response.ok) {
+          const errMsg = await response.text();
+          throw new Error("EmailJS Error: " + errMsg);
+        }
+        
+        toast("Verification code sent to " + email, "success");
+      } else {
+        // Fallback simulation
+        console.log('%c[OTP SIMULATION] Code for ' + email + ' is: ' + generatedOtp, 'background: #222; color: #bada55; font-size: 1.2em; padding: 4px;');
+        toast("Simulation: OTP code printed to browser devtools console.", "info");
+      }
       
       setOtpSent(true);
-      toast("Verification code sent to " + email, "success");
     } catch (err) {
       console.error(err);
       toast(err.message || "Failed to send verification code.", "error");
@@ -2205,17 +2292,20 @@ function LoginPage({ onAuthSuccess, backendUrl, toast }) {
     if (!email || !otp) return;
     setIsLoading(true);
     setLoadingMsg("Verifying OTP code...");
+    
     try {
-      const res = await fetch(`${backendUrl}/verifyOtp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), otp: otp.trim() })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Verification failed.");
+      // 1. Verify OTP client side
+      if (otp.trim() !== storedOtp) {
+        throw new Error("Invalid verification code.");
+      }
       
+      // 2. Verify timeout (5 minutes = 300,000 milliseconds)
+      if (!otpCreatedAt || Date.now() - otpCreatedAt > 300000) {
+        throw new Error("Verification code has expired. Please request a new one.");
+      }
+
       setLoadingMsg("Authenticating session...");
-      const credential = data.credential;
+      const credential = await getClientCredential(email);
       
       try {
         const userCredential = await signInWithEmailAndPassword(auth, email.trim(), credential);
@@ -2259,44 +2349,21 @@ function LoginPage({ onAuthSuccess, backendUrl, toast }) {
     }
   };
 
-  const handleResetPassword = async (e) => {
+  const handleForgotPassword = async (e) => {
     e.preventDefault();
-    if (!email || !otp || !newPassword) return;
-    if (newPassword.length < 6) {
-      toast("Password must be at least 6 characters.", "warning");
+    if (!email) {
+      toast("Please enter your registered email address.", "warning");
       return;
     }
     setIsLoading(true);
-    setLoadingMsg("Resetting password in database...");
+    setLoadingMsg("Sending password reset link...");
     try {
-      const res = await fetch(`${backendUrl}/resetPassword`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), otp: otp.trim(), new_password: newPassword.trim() })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Password reset failed.");
-      
-      const currentCredential = data.credential;
-      setLoadingMsg("Updating Firebase credentials...");
-      
-      let userCredential;
-      try {
-        userCredential = await signInWithEmailAndPassword(auth, email.trim(), currentCredential);
-      } catch (authErr) {
-        if (authErr.code === 'auth/user-not-found') {
-          userCredential = await createUserWithEmailAndPassword(auth, email.trim(), currentCredential);
-        } else {
-          throw authErr;
-        }
-      }
-      
-      await updatePassword(userCredential.user, newPassword.trim());
-      onAuthSuccess(userCredential.user);
-      toast("Password reset successfully! Session authenticated.", "success");
+      await sendPasswordResetEmail(auth, email.trim());
+      toast("Password reset link sent to " + email, "success");
+      setActiveTab('password');
     } catch (err) {
       console.error(err);
-      toast(err.message || "Failed to reset password.", "error");
+      toast(err.message || "Failed to send reset link.", "error");
     } finally {
       setIsLoading(false);
     }
@@ -2449,62 +2516,31 @@ function LoginPage({ onAuthSuccess, backendUrl, toast }) {
                 <h3 className="text-xs font-bold text-white">Reset Password</h3>
                 <button 
                   type="button"
-                  onClick={() => { setActiveTab('password'); setOtpSent(false); setOtp(''); }}
+                  onClick={() => { setActiveTab('password'); }}
                   className="text-[10px] text-[#A8A29E] hover:text-white cursor-pointer"
                 >
                   ← Back to Login
                 </button>
               </div>
 
-              <form onSubmit={otpSent ? handleResetPassword : handleSendOTP} className="space-y-4">
+              <form onSubmit={handleForgotPassword} className="space-y-4">
                 <div>
                   <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">Registered Email</label>
                   <input 
                     type="email" 
                     required 
-                    disabled={otpSent}
                     value={email} 
                     onChange={e => setEmail(e.target.value)} 
                     placeholder="name@company.com" 
-                    className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] transition-colors disabled:opacity-50"
+                    className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] transition-colors"
                   />
                 </div>
-
-                {otpSent && (
-                  <div className="space-y-4 animate-slide-in">
-                    <div>
-                      <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">Verification Code (OTP)</label>
-                      <input 
-                        type="text" 
-                        required 
-                        maxLength={6}
-                        value={otp} 
-                        onChange={e => setOtp(e.target.value.replace(/\D/g, ''))} 
-                        placeholder="Enter 6-digit code" 
-                        className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white text-center font-mono tracking-widest focus:outline-none focus:border-[#C5A880] transition-colors"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">New Permanent Password</label>
-                      <input 
-                        type="password" 
-                        required 
-                        minLength={6}
-                        value={newPassword} 
-                        onChange={e => setNewPassword(e.target.value)} 
-                        placeholder="Minimum 6 characters" 
-                        className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] transition-colors"
-                      />
-                    </div>
-                  </div>
-                )}
 
                 <button 
                   type="submit" 
                   className="w-full mt-2 py-2.5 bg-[#C5A880] hover:bg-[#DBC09B] text-[#1C1917] font-bold text-xs rounded-lg shadow-lg shadow-[#C5A880]/5 transition-all cursor-pointer"
                 >
-                  {otpSent ? 'Reset Password & Sign In' : 'Send Reset Code'}
+                  Send Reset Link
                 </button>
               </form>
             </div>
