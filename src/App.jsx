@@ -2261,7 +2261,9 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
             user_id: emailjsPublicKey,
             template_params: {
               to_email: email.trim(),
-              otp_code: generatedOtp
+              email: email.trim(),
+              otp_code: generatedOtp,
+              passcode: generatedOtp
             }
           })
         });
