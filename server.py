@@ -80,6 +80,23 @@ def init_db():
         )
     ''')
     
+    # Create OTPs table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS otps (
+            email TEXT PRIMARY KEY,
+            otp TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    ''')
+    
+    # Create user_credentials table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_credentials (
+            email TEXT PRIMARY KEY,
+            password TEXT NOT NULL
+        )
+    ''')
+    
     # Check if database is empty to insert seeds
     cursor.execute("SELECT COUNT(*) FROM leads")
     if cursor.fetchone()[0] == 0:
@@ -656,6 +673,226 @@ def parse_multilingual_transcript(text):
         "token_paid": token_paid,
         "plot_type": plot_type or "0.25 Acre Farmland (100 Trees)"
     }
+
+# ==========================================
+# Authentication & OTP Verification System
+# ==========================================
+import hmac
+import hashlib
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+def get_secure_password(email):
+    secret_key = os.environ.get("AUTH_SECRET_KEY", "lohitha-dharma-auth-secret-key-2026")
+    return hmac.new(secret_key.encode('utf-8'), email.lower().encode('utf-8'), hashlib.sha256).hexdigest()
+
+def send_otp_email(to_email, otp):
+    smtp_host = os.environ.get("SMTP_HOST")
+    smtp_port = os.environ.get("SMTP_PORT")
+    smtp_user = os.environ.get("SMTP_USER")
+    smtp_pass = os.environ.get("SMTP_PASSWORD")
+    sender_email = os.environ.get("SMTP_SENDER", smtp_user)
+    
+    subject = "Lohitha Dharma CRM - Verification Code"
+    body = f"""
+    Hello,
+    
+    Your verification code is: {otp}
+    
+    This code is valid for 5 minutes.
+    
+    If you did not request this code, please ignore this email.
+    
+    Best regards,
+    Lohitha Dharma Projects Team
+    """
+    
+    if not all([smtp_host, smtp_port, smtp_user, smtp_pass]):
+        print(f"[SMTP SIMULATION] To: {to_email} | Subject: {subject} | OTP: {otp}", flush=True)
+        return True
+        
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = sender_email or "no-reply@lohithadharma.com"
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain'))
+        
+        port = int(smtp_port)
+        if port == 465:
+            server = smtplib.SMTP_SSL(smtp_host, port, timeout=10)
+        else:
+            server = smtplib.SMTP(smtp_host, port, timeout=10)
+            server.starttls()
+            
+        server.login(smtp_user, smtp_pass)
+        server.sendmail(sender_email or smtp_user, to_email, msg.as_string())
+        server.close()
+        print(f"SMTP Success: OTP email sent to {to_email}", flush=True)
+        return True
+    except Exception as e:
+        print(f"SMTP Error sending email: {str(e)}", flush=True)
+        # Fallback to simulation print
+        print(f"[SMTP FALLBACK SIMULATION] To: {to_email} | OTP: {otp}", flush=True)
+        return True
+
+# POST /api/auth/send-otp
+@app.route('/api/auth/send-otp', methods=['POST'])
+def send_otp():
+    data = request.json or {}
+    email = data.get("email")
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+        
+    email = email.strip().lower()
+    
+    # Generate 6-digit OTP
+    otp = f"{random.randint(100000, 999999)}"
+    created_at = datetime.utcnow().isoformat() + "Z"
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Upsert OTP
+        cursor.execute("INSERT OR REPLACE INTO otps (email, otp, created_at) VALUES (?, ?, ?)", (email, otp, created_at))
+        conn.commit()
+    except Exception as e:
+        conn.close()
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
+    conn.close()
+    
+    # Send OTP
+    send_otp_email(email, otp)
+    
+    return jsonify({"success": True, "message": "OTP sent successfully"}), 200
+
+# POST /api/auth/verify-otp
+@app.route('/api/auth/verify-otp', methods=['POST'])
+def verify_otp():
+    data = request.json or {}
+    email = data.get("email")
+    otp = data.get("otp")
+    
+    if not email or not otp:
+        return jsonify({"error": "Email and OTP are required"}), 400
+        
+    email = email.strip().lower()
+    otp = otp.strip()
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT otp, created_at FROM otps WHERE email = ?", (email,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        return jsonify({"error": "No OTP found or code expired."}), 400
+        
+    stored_otp = row["otp"]
+    created_at_str = row["created_at"]
+    
+    # Check expiration (5 minutes)
+    try:
+        created_at = datetime.strptime(created_at_str, "%Y-%m-%dT%H:%M:%S.%fZ")
+    except ValueError:
+        try:
+            created_at = datetime.strptime(created_at_str, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            created_at = datetime.utcnow() # fallback
+            
+    elapsed = (datetime.utcnow() - created_at).total_seconds()
+    if elapsed > 300: # 5 minutes
+        return jsonify({"error": "OTP has expired."}), 400
+        
+    if stored_otp != otp:
+        return jsonify({"error": "Invalid OTP code."}), 400
+        
+    # Check if user has credentials in DB
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT password FROM user_credentials WHERE email = ?", (email,))
+    row = cursor.fetchone()
+    if row:
+        secure_credential = row["password"]
+    else:
+        secure_credential = get_secure_password(email)
+        cursor.execute("INSERT INTO user_credentials (email, password) VALUES (?, ?)", (email, secure_credential))
+        conn.commit()
+    conn.close()
+    
+    return jsonify({
+        "success": True, 
+        "message": "OTP verified successfully",
+        "credential": secure_credential
+    }), 200
+
+# POST /api/auth/reset-password
+@app.route('/api/auth/reset-password', methods=['POST'])
+def reset_password():
+    data = request.json or {}
+    email = data.get("email")
+    otp = data.get("otp")
+    new_password = data.get("new_password")
+    
+    if not email or not otp or not new_password:
+        return jsonify({"error": "Email, OTP and New Password are required"}), 400
+        
+    email = email.strip().lower()
+    otp = otp.strip()
+    new_password = new_password.strip()
+    
+    if len(new_password) < 6:
+        return jsonify({"error": "Password must be at least 6 characters long."}), 400
+        
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT otp, created_at FROM otps WHERE email = ?", (email,))
+    row = cursor.fetchone()
+    
+    if not row:
+        conn.close()
+        return jsonify({"error": "No OTP found or code expired."}), 400
+        
+    stored_otp = row["otp"]
+    created_at_str = row["created_at"]
+    
+    # Check expiration (5 minutes)
+    try:
+        created_at = datetime.strptime(created_at_str, "%Y-%m-%dT%H:%M:%S.%fZ")
+    except ValueError:
+        try:
+            created_at = datetime.strptime(created_at_str, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            created_at = datetime.utcnow() # fallback
+            
+    elapsed = (datetime.utcnow() - created_at).total_seconds()
+    if elapsed > 300: # 5 minutes
+        conn.close()
+        return jsonify({"error": "OTP has expired."}), 400
+        
+    if stored_otp != otp:
+        conn.close()
+        return jsonify({"error": "Invalid OTP code."}), 400
+        
+    # Get current stored password
+    cursor.execute("SELECT password FROM user_credentials WHERE email = ?", (email,))
+    cred_row = cursor.fetchone()
+    if cred_row:
+        current_password = cred_row["password"]
+    else:
+        current_password = get_secure_password(email)
+        
+    # Update SQLite database with new password
+    cursor.execute("INSERT OR REPLACE INTO user_credentials (email, password) VALUES (?, ?)", (email, new_password))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({
+        "success": True, 
+        "message": "Password reset in backend successfully",
+        "credential": current_password
+    }), 200
 
 # ==========================================
 # REST API Endpoints

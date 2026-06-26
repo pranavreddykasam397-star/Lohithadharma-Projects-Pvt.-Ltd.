@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { db, initFirebaseSeeds } from './firebase';
+import { db, initFirebaseSeeds, auth } from './firebase';
 import { collection, getDocs, getDoc, doc, setDoc, updateDoc, onSnapshot, query, orderBy, deleteDoc } from 'firebase/firestore';
+import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut } from 'firebase/auth';
 import { saveRecording, getRecordings, deleteRecording } from './audioStorage';
 import LohithLoader from './LohithLoader';
 
@@ -10,6 +11,18 @@ const DEFAULT_API = 'http://localhost:5000';
 
 
 export default function App() {
+  // ─── Auth State ───
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setAuthLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
   // ─── Theme ───
   const [theme, setTheme] = useState(() => {
     const s = localStorage.getItem('app-theme') || 'light';
@@ -992,6 +1005,22 @@ export default function App() {
   // ════════════════════════════════════════
   // RENDER
   // ════════════════════════════════════════
+  if (authLoading) {
+    return (
+      <LohithLoader isLoading={true} loadingMsg="Verifying active session..." />
+    );
+  }
+
+  if (!user) {
+    return (
+      <LoginPage 
+        onAuthSuccess={(u) => setUser(u)} 
+        backendUrl={backendUrl} 
+        toast={toast} 
+      />
+    );
+  }
+
   return (
     <div className="h-screen w-screen flex bg-app-bg text-app-text antialiased font-sans overflow-hidden">
 
@@ -1032,14 +1061,31 @@ export default function App() {
         </nav>
 
         {/* User */}
-        <div className="p-3 border-t border-[#3D3530]">
+        <div className="p-3 border-t border-[#3D3530] space-y-2">
           <div className="flex items-center gap-2.5 px-2">
-            <div className="w-8 h-8 rounded-full bg-app-accent text-white text-xs font-bold flex items-center justify-center">PR</div>
+            <div className="w-8 h-8 rounded-full bg-app-accent text-white text-xs font-bold flex items-center justify-center">
+              {user?.email ? user.email.slice(0, 2).toUpperCase() : 'PR'}
+            </div>
             <div className="flex-1 min-w-0">
-              <div className="text-stone-200 text-xs font-medium truncate">Pranav Developer</div>
-              <div className="text-[#9B918A] text-[10px] truncate">admin@lohithadharma.com</div>
+              <div className="text-stone-200 text-xs font-medium truncate">
+                {user?.email ? user.email.split('@')[0].replace('.', ' ').replace(/(^\w|\s\w)/g, m => m.toUpperCase()) : 'Lohitha Agent'}
+              </div>
+              <div className="text-[#9B918A] text-[10px] truncate">{user?.email || 'admin@lohithadharma.com'}</div>
             </div>
           </div>
+          <button 
+            onClick={async () => {
+              try {
+                await signOut(auth);
+                toast("Logged out successfully", "success");
+              } catch (err) {
+                toast("Logout failed", "error");
+              }
+            }}
+            className="w-full mt-1 py-1.5 border border-[#3D3530] hover:bg-[#3D3530]/50 text-[11px] text-[#9B918A] hover:text-stone-200 font-semibold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5"
+          >
+            <span>🚪</span> Sign Out
+          </button>
         </div>
       </aside>
 
@@ -2098,3 +2144,357 @@ function LocalAudioPlayer({ rec, downloadRecording, removeStoredRecording }) {
     </div>
   );
 }
+
+// ─── LoginPage Component ───
+function LoginPage({ onAuthSuccess, backendUrl, toast }) {
+  const [activeTab, setActiveTab] = useState('otp'); // 'otp', 'password', 'forgot'
+  const [email, setEmail] = useState('');
+  const [otp, setOtp] = useState('');
+  const [password, setPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState('');
+
+  const handleSendOTP = async (e) => {
+    if (e) e.preventDefault();
+    if (!email) {
+      toast("Please enter your email address.", "warning");
+      return;
+    }
+    setIsLoading(true);
+    setLoadingMsg("Sending verification code...");
+    try {
+      const res = await fetch(`${backendUrl}/api/auth/send-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to send verification code.");
+      
+      setOtpSent(true);
+      toast("Verification code sent to " + email, "success");
+    } catch (err) {
+      console.error(err);
+      toast(err.message || "Failed to send verification code.", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVerifyOTP = async (e) => {
+    e.preventDefault();
+    if (!email || !otp) return;
+    setIsLoading(true);
+    setLoadingMsg("Verifying OTP code...");
+    try {
+      const res = await fetch(`${backendUrl}/api/auth/verify-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), otp: otp.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Verification failed.");
+      
+      setLoadingMsg("Authenticating session...");
+      const credential = data.credential;
+      
+      try {
+        const userCredential = await signInWithEmailAndPassword(auth, email.trim(), credential);
+        onAuthSuccess(userCredential.user);
+        toast("Welcome back!", "success");
+      } catch (authErr) {
+        if (authErr.code === 'auth/user-not-found' || authErr.code === 'auth/invalid-login-credentials' || authErr.code === 'auth/invalid-credential') {
+          setLoadingMsg("Creating secure agent account...");
+          const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), credential);
+          onAuthSuccess(userCredential.user);
+          toast("Agent registered and signed in successfully!", "success");
+        } else {
+          throw authErr;
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      toast(err.message || "Login failed.", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePasswordLogin = async (e) => {
+    e.preventDefault();
+    if (!email || !password) return;
+    setIsLoading(true);
+    setLoadingMsg("Verifying credentials...");
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      onAuthSuccess(userCredential.user);
+      toast("Welcome back!", "success");
+    } catch (err) {
+      console.error(err);
+      let errMsg = "Failed to sign in. Please verify your password.";
+      if (err.code === 'auth/user-not-found') errMsg = "User not registered. Please sign in via OTP first.";
+      else if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-login-credentials' || err.code === 'auth/invalid-credential') errMsg = "Incorrect password.";
+      toast(errMsg, "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    if (!email || !otp || !newPassword) return;
+    if (newPassword.length < 6) {
+      toast("Password must be at least 6 characters.", "warning");
+      return;
+    }
+    setIsLoading(true);
+    setLoadingMsg("Resetting password in database...");
+    try {
+      const res = await fetch(`${backendUrl}/api/auth/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), otp: otp.trim(), new_password: newPassword.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Password reset failed.");
+      
+      const currentCredential = data.credential;
+      setLoadingMsg("Updating Firebase credentials...");
+      
+      let userCredential;
+      try {
+        userCredential = await signInWithEmailAndPassword(auth, email.trim(), currentCredential);
+      } catch (authErr) {
+        if (authErr.code === 'auth/user-not-found') {
+          userCredential = await createUserWithEmailAndPassword(auth, email.trim(), currentCredential);
+        } else {
+          throw authErr;
+        }
+      }
+      
+      await updatePassword(userCredential.user, newPassword.trim());
+      onAuthSuccess(userCredential.user);
+      toast("Password reset successfully! Session authenticated.", "success");
+    } catch (err) {
+      console.error(err);
+      toast(err.message || "Failed to reset password.", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen w-screen flex items-center justify-center bg-[#121212] text-[#E7E5E4] antialiased font-sans relative overflow-hidden">
+      <LohithLoader isLoading={isLoading} loadingMsg={loadingMsg} />
+      
+      {/* Dynamic Background Gradients */}
+      <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] rounded-full bg-[#6B8F71]/5 blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] rounded-full bg-[#C5A880]/5 blur-[120px] pointer-events-none" />
+      
+      <div className="w-full max-w-md p-6 relative z-10 animate-slide-in">
+        {/* Logo and Brand */}
+        <div className="text-center mb-8">
+          <div className="inline-flex w-12 h-12 rounded-xl bg-[#C5A880] items-center justify-center text-[#1C1917] text-lg font-bold shadow-lg shadow-[#C5A880]/10 mb-3 select-none">
+            LD
+          </div>
+          <h1 className="text-xl font-bold tracking-tight text-white">Lohitha Dharma Projects</h1>
+          <p className="text-xs text-[#A8A29E] mt-1">Farmland Managed Agroforestry CRM</p>
+        </div>
+
+        {/* Auth Card */}
+        <div className="bg-[#1C1917]/70 backdrop-blur-md border border-[#3E3835] rounded-2xl p-6 shadow-2xl">
+          {activeTab !== 'forgot' && (
+            <div className="flex border-b border-[#3E3835] mb-6">
+              <button 
+                type="button"
+                onClick={() => { setActiveTab('otp'); setOtpSent(false); setOtp(''); }}
+                className={`flex-1 pb-3 text-xs font-semibold border-b-2 transition-all cursor-pointer ${activeTab === 'otp' ? 'border-[#C5A880] text-[#C5A880]' : 'border-transparent text-[#A8A29E] hover:text-[#E7E5E4]'}`}
+              >
+                OTP Verification
+              </button>
+              <button 
+                type="button"
+                onClick={() => { setActiveTab('password'); setPassword(''); }}
+                className={`flex-1 pb-3 text-xs font-semibold border-b-2 transition-all cursor-pointer ${activeTab === 'password' ? 'border-[#C5A880] text-[#C5A880]' : 'border-transparent text-[#A8A29E] hover:text-[#E7E5E4]'}`}
+              >
+                Password Login
+              </button>
+            </div>
+          )}
+
+          {activeTab === 'otp' && (
+            <form onSubmit={otpSent ? handleVerifyOTP : handleSendOTP} className="space-y-4">
+              <div>
+                <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">Email Address</label>
+                <input 
+                  type="email" 
+                  required 
+                  disabled={otpSent}
+                  value={email} 
+                  onChange={e => setEmail(e.target.value)} 
+                  placeholder="name@company.com" 
+                  className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] transition-colors disabled:opacity-50"
+                />
+              </div>
+
+              {otpSent && (
+                <div className="animate-slide-in">
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block">One-Time Password (OTP)</label>
+                    <button 
+                      type="button" 
+                      onClick={() => { setOtpSent(false); setOtp(''); }}
+                      className="text-[10px] text-[#C5A880] hover:underline cursor-pointer"
+                    >
+                      Change Email
+                    </button>
+                  </div>
+                  <input 
+                    type="text" 
+                    required 
+                    maxLength={6}
+                    value={otp} 
+                    onChange={e => setOtp(e.target.value.replace(/\D/g, ''))} 
+                    placeholder="Enter 6-digit code" 
+                    className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white text-center font-mono tracking-widest focus:outline-none focus:border-[#C5A880] transition-colors"
+                  />
+                  <div className="flex justify-between items-center mt-2">
+                    <span className="text-[10px] text-[#A8A29E]">Code is valid for 5 minutes</span>
+                    <button 
+                      type="button" 
+                      onClick={handleSendOTP}
+                      className="text-[10px] text-[#C5A880] hover:underline cursor-pointer"
+                    >
+                      Resend Code
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <button 
+                type="submit" 
+                className="w-full mt-2 py-2.5 bg-[#C5A880] hover:bg-[#DBC09B] text-[#1C1917] font-bold text-xs rounded-lg shadow-lg shadow-[#C5A880]/5 transition-all cursor-pointer"
+              >
+                {otpSent ? 'Verify & Sign In' : 'Send Verification Code'}
+              </button>
+            </form>
+          )}
+
+          {activeTab === 'password' && (
+            <form onSubmit={handlePasswordLogin} className="space-y-4">
+              <div>
+                <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">Email Address</label>
+                <input 
+                  type="email" 
+                  required 
+                  value={email} 
+                  onChange={e => setEmail(e.target.value)} 
+                  placeholder="name@company.com" 
+                  className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] transition-colors"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block">Password</label>
+                  <button 
+                    type="button"
+                    onClick={() => { setActiveTab('forgot'); setOtpSent(false); setOtp(''); }}
+                    className="text-[10px] text-[#C5A880] hover:underline cursor-pointer"
+                  >
+                    Forgot Password?
+                  </button>
+                </div>
+                <input 
+                  type="password" 
+                  required 
+                  value={password} 
+                  onChange={e => setPassword(e.target.value)} 
+                  placeholder="••••••••" 
+                  className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] transition-colors"
+                />
+              </div>
+
+              <button 
+                type="submit" 
+                className="w-full mt-2 py-2.5 bg-[#C5A880] hover:bg-[#DBC09B] text-[#1C1917] font-bold text-xs rounded-lg shadow-lg shadow-[#C5A880]/5 transition-all cursor-pointer"
+              >
+                Sign In
+              </button>
+            </form>
+          )}
+
+          {activeTab === 'forgot' && (
+            <div className="space-y-4 animate-slide-in">
+              <div className="flex items-center justify-between border-b border-[#3E3835] pb-3 mb-2">
+                <h3 className="text-xs font-bold text-white">Reset Password</h3>
+                <button 
+                  type="button"
+                  onClick={() => { setActiveTab('password'); setOtpSent(false); setOtp(''); }}
+                  className="text-[10px] text-[#A8A29E] hover:text-white cursor-pointer"
+                >
+                  ← Back to Login
+                </button>
+              </div>
+
+              <form onSubmit={otpSent ? handleResetPassword : handleSendOTP} className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">Registered Email</label>
+                  <input 
+                    type="email" 
+                    required 
+                    disabled={otpSent}
+                    value={email} 
+                    onChange={e => setEmail(e.target.value)} 
+                    placeholder="name@company.com" 
+                    className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] transition-colors disabled:opacity-50"
+                  />
+                </div>
+
+                {otpSent && (
+                  <div className="space-y-4 animate-slide-in">
+                    <div>
+                      <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">Verification Code (OTP)</label>
+                      <input 
+                        type="text" 
+                        required 
+                        maxLength={6}
+                        value={otp} 
+                        onChange={e => setOtp(e.target.value.replace(/\D/g, ''))} 
+                        placeholder="Enter 6-digit code" 
+                        className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white text-center font-mono tracking-widest focus:outline-none focus:border-[#C5A880] transition-colors"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">New Permanent Password</label>
+                      <input 
+                        type="password" 
+                        required 
+                        minLength={6}
+                        value={newPassword} 
+                        onChange={e => setNewPassword(e.target.value)} 
+                        placeholder="Minimum 6 characters" 
+                        className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] transition-colors"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <button 
+                  type="submit" 
+                  className="w-full mt-2 py-2.5 bg-[#C5A880] hover:bg-[#DBC09B] text-[#1C1917] font-bold text-xs rounded-lg shadow-lg shadow-[#C5A880]/5 transition-all cursor-pointer"
+                >
+                  {otpSent ? 'Reset Password & Sign In' : 'Send Reset Code'}
+                </button>
+              </form>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+

@@ -1,6 +1,8 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, getDocs, getDoc, updateDoc, query, orderBy, onSnapshot } from "firebase/firestore";
 
+import { getAuth } from "firebase/auth";
+
 const firebaseConfig = {
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "lohitha-dharma-project",
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:926787117945:web:05b27f4dd948838fd205a8",
@@ -14,6 +16,7 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, "default");
+export const auth = getAuth(app);
 
 // Helper to pre-populate Firebase database with seeds if empty
 export async function initFirebaseSeeds() {
