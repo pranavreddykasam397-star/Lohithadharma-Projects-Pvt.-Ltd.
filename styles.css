@@ -120,7 +120,14 @@ select option {
   background-color: var(--app-panel) !important;
 }
 
-/* Ensure inputs, select, and textarea have solid backgrounds */
+/* Ensure inputs, select, and textarea have solid backgrounds and correct text colors */
 input, select, textarea {
   background-color: var(--app-input) !important;
+  color: var(--app-text) !important;
+}
+
+/* Force readable placeholder contrast in both light and dark modes */
+input::placeholder, textarea::placeholder {
+  color: var(--app-muted) !important;
+  opacity: 0.75 !important;
 }
