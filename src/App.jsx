@@ -6,7 +6,7 @@ import { saveRecording, getRecordings, deleteRecording } from './audioStorage';
 import LohithLoader from './LohithLoader';
 
 
-const DEFAULT_API = 'http://localhost:5000';
+const DEFAULT_API = import.meta.env.VITE_BACKEND_URL || 'https://lohithadharma-projects-pvt-ltd.onrender.com';
 
 
 
