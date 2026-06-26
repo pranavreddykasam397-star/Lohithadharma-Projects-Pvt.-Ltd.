@@ -2216,14 +2216,29 @@ function LocalAudioPlayer({ rec, downloadRecording, removeStoredRecording }) {
 // ─── LoginPage Component ───
 function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjsTemplateId, emailjsPublicKey }) {
   const [activeTab, setActiveTab] = useState('otp'); // 'otp', 'password', 'forgot'
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => sessionStorage.getItem('login_email') || '');
   const [otp, setOtp] = useState('');
   const [password, setPassword] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
+  const [otpSent, setOtpSent] = useState(() => sessionStorage.getItem('login_otp_sent') === 'true');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState('');
-  const [storedOtp, setStoredOtp] = useState('');
-  const [otpCreatedAt, setOtpCreatedAt] = useState(null);
+  
+  const [storedOtp, setStoredOtp] = useState(() => sessionStorage.getItem('login_stored_otp') || '');
+  const [otpCreatedAt, setOtpCreatedAt] = useState(() => {
+    const val = sessionStorage.getItem('login_otp_created_at');
+    return val ? parseInt(val, 10) : null;
+  });
+
+  const clearSessionOtp = () => {
+    sessionStorage.removeItem('login_stored_otp');
+    sessionStorage.removeItem('login_otp_created_at');
+    sessionStorage.removeItem('login_otp_sent');
+    sessionStorage.removeItem('login_email');
+    setOtpSent(false);
+    setOtp('');
+    setStoredOtp('');
+    setOtpCreatedAt(null);
+  };
 
   const getClientCredential = async (userEmail) => {
     const secret = 'lohitha-dharma-crm-client-auth-token-v1';
@@ -2246,7 +2261,14 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
     try {
       const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
       setStoredOtp(generatedOtp);
-      setOtpCreatedAt(Date.now());
+      sessionStorage.setItem('login_stored_otp', generatedOtp);
+      
+      const now = Date.now();
+      setOtpCreatedAt(now);
+      sessionStorage.setItem('login_otp_created_at', now.toString());
+      
+      sessionStorage.setItem('login_email', email.trim());
+      sessionStorage.setItem('login_otp_sent', 'true');
 
       if (emailjsServiceId && emailjsTemplateId && emailjsPublicKey) {
         setLoadingMsg("Sending OTP via EmailJS...");
@@ -2311,12 +2333,14 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
       
       try {
         const userCredential = await signInWithEmailAndPassword(auth, email.trim(), credential);
+        clearSessionOtp();
         onAuthSuccess(userCredential.user);
         toast("Welcome back!", "success");
       } catch (authErr) {
         if (authErr.code === 'auth/user-not-found' || authErr.code === 'auth/invalid-login-credentials' || authErr.code === 'auth/invalid-credential') {
           setLoadingMsg("Creating secure agent account...");
           const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), credential);
+          clearSessionOtp();
           onAuthSuccess(userCredential.user);
           toast("Agent registered and signed in successfully!", "success");
         } else {
@@ -2395,7 +2419,7 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
             <div className="flex border-b border-[#3E3835] mb-6">
               <button 
                 type="button"
-                onClick={() => { setActiveTab('otp'); setOtpSent(false); setOtp(''); }}
+                onClick={() => { setActiveTab('otp'); clearSessionOtp(); }}
                 className={`flex-1 pb-3 text-xs font-semibold border-b-2 transition-all cursor-pointer ${activeTab === 'otp' ? 'border-[#C5A880] text-[#C5A880]' : 'border-transparent text-[#A8A29E] hover:text-[#E7E5E4]'}`}
               >
                 OTP Verification
@@ -2431,7 +2455,7 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
                     <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block">One-Time Password (OTP)</label>
                     <button 
                       type="button" 
-                      onClick={() => { setOtpSent(false); setOtp(''); }}
+                      onClick={clearSessionOtp}
                       className="text-[10px] text-[#C5A880] hover:underline cursor-pointer"
                     >
                       Change Email
@@ -2487,7 +2511,7 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
                   <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block">Password</label>
                   <button 
                     type="button"
-                    onClick={() => { setActiveTab('forgot'); setOtpSent(false); setOtp(''); }}
+                    onClick={() => { setActiveTab('forgot'); clearSessionOtp(); }}
                     className="text-[10px] text-[#C5A880] hover:underline cursor-pointer"
                   >
                     Forgot Password?
