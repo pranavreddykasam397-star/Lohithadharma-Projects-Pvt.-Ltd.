@@ -111,8 +111,8 @@ export default function App() {
   const [webhookBase, setWebhookBase] = useState(() => localStorage.getItem('webhook_base_url') || '');
   const [backendUrl, setBackendUrl] = useState(() => localStorage.getItem('backend_api_url') || DEFAULT_API);
   const [emailjsServiceId, setEmailjsServiceId] = useState(() => localStorage.getItem('emailjs_service_id') || 'service_ornoirw');
-  const [emailjsTemplateId, setEmailjsTemplateId] = useState(() => localStorage.getItem('emailjs_template_id') || '');
-  const [emailjsPublicKey, setEmailjsPublicKey] = useState(() => localStorage.getItem('emailjs_public_key') || '');
+  const [emailjsTemplateId, setEmailjsTemplateId] = useState(() => localStorage.getItem('emailjs_template_id') || 'template_kwtmhdg');
+  const [emailjsPublicKey, setEmailjsPublicKey] = useState(() => localStorage.getItem('emailjs_public_key') || 'ENy0TGer0jZWnBr48');
   const sseRef = useRef(null);
   const [isProcessingRemote, setIsProcessingRemote] = useState(false);
   const [remoteLoadingMsg, setRemoteLoadingMsg] = useState("");
