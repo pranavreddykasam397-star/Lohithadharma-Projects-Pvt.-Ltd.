@@ -212,8 +212,11 @@ def init_db():
     conn.close()
 
 def delete_lead_from_firestore(lead_id):
-    project_id = os.environ.get("FIREBASE_PROJECT_ID", "lohitha-dharma-project")
-    api_key = os.environ.get("FIREBASE_API_KEY", "AIzaSyCu63Ej-ViFR71ifFjDJWES0ylWjp1iZLQ")
+    project_id = os.environ.get("FIREBASE_PROJECT_ID") or os.environ.get("VITE_FIREBASE_PROJECT_ID") or "lohitha-dharma-project"
+    api_key = os.environ.get("FIREBASE_API_KEY") or os.environ.get("VITE_FIREBASE_API_KEY")
+    if not api_key:
+        print(f"Firestore Warning: api_key is missing. Cannot delete lead {lead_id}.")
+        return False
     
     url = f"https://firestore.googleapis.com/v1/projects/{project_id}/databases/default/documents/leads/{lead_id}?key={api_key}"
     import urllib.request
@@ -957,8 +960,11 @@ def to_firestore_fields(data_dict):
     }
 
 def sync_lead_to_firestore(lead_id):
-    project_id = os.environ.get("FIREBASE_PROJECT_ID", "lohitha-dharma-project")
-    api_key = os.environ.get("FIREBASE_API_KEY", "AIzaSyCu63Ej-ViFR71ifFjDJWES0ylWjp1iZLQ")
+    project_id = os.environ.get("FIREBASE_PROJECT_ID") or os.environ.get("VITE_FIREBASE_PROJECT_ID") or "lohitha-dharma-project"
+    api_key = os.environ.get("FIREBASE_API_KEY") or os.environ.get("VITE_FIREBASE_API_KEY")
+    if not api_key:
+        print(f"Firestore Sync Warning: api_key is missing. Cannot sync lead {lead_id}.")
+        return False
     
     print(f"Firestore Sync: Fetching lead {lead_id} from SQLite to sync with Firestore...")
     conn = get_db_connection()
@@ -1184,13 +1190,37 @@ def sync_active_calls_from_bland():
         except Exception as e:
             print(f"Failed to poll call {call_id}: {str(e)}", flush=True)
 
+sync_lock = threading.Lock()
+is_syncing = False
+
+def sync_active_calls_from_bland_async():
+    global is_syncing
+    with sync_lock:
+        if is_syncing:
+            return
+        is_syncing = True
+
+    def run_sync():
+        global is_syncing
+        try:
+            sync_active_calls_from_bland()
+        except Exception as err:
+            print(f"Error in background sync thread: {str(err)}", flush=True)
+        finally:
+            with sync_lock:
+                is_syncing = False
+
+    thread = threading.Thread(target=run_sync)
+    thread.daemon = True
+    thread.start()
+
 @app.route('/api/calls', methods=['GET'])
 def get_calls():
-    # Sync active calls first
+    # Sync active calls asynchronously in the background
     try:
-        sync_active_calls_from_bland()
+        sync_active_calls_from_bland_async()
     except Exception as e:
-        print(f"Error during active calls sync: {str(e)}", flush=True)
+        print(f"Error during active calls async sync trigger: {str(e)}", flush=True)
         
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -1622,5 +1652,10 @@ def calls_webhook():
 # Start Flask server
 if __name__ == '__main__':
     init_db()
-    print("SQLite database verified. Running Lohitha Dharma API on port 5000...")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    
+    # Read environment variables for safe default configuration
+    debug_mode = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
+    host_ip = os.environ.get("FLASK_HOST", "127.0.0.1")
+    
+    print(f"SQLite database verified. Running Lohitha Dharma API on {host_ip}:5000 (debug={debug_mode})...")
+    app.run(host=host_ip, port=5000, debug=debug_mode, use_evalex=False)

@@ -2,13 +2,13 @@ import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, getDocs, getDoc, updateDoc, query, orderBy, onSnapshot } from "firebase/firestore";
 
 const firebaseConfig = {
-  projectId: "lohitha-dharma-project",
-  appId: "1:926787117945:web:05b27f4dd948838fd205a8",
-  storageBucket: "lohitha-dharma-project.firebasestorage.app",
-  apiKey: "AIzaSyCu63Ej-ViFR71ifFjDJWES0ylWjp1iZLQ",
-  authDomain: "lohitha-dharma-project.firebaseapp.com",
-  messagingSenderId: "926787117945",
-  measurementId: "G-0WVZ9T3HJ2"
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "lohitha-dharma-project",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:926787117945:web:05b27f4dd948838fd205a8",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "lohitha-dharma-project.firebasestorage.app",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyCu63Ej-ViFR71ifFjDJWES0ylWjp1iZLQ",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "lohitha-dharma-project.firebaseapp.com",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "926787117945",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-0WVZ9T3HJ2"
 };
 
 // Initialize Firebase

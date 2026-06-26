@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { db, initFirebaseSeeds } from './firebase';
 import { collection, getDocs, getDoc, doc, setDoc, updateDoc, onSnapshot, query, orderBy, deleteDoc } from 'firebase/firestore';
 import { saveRecording, getRecordings, deleteRecording } from './audioStorage';
@@ -7,12 +7,7 @@ import LohithLoader from './LohithLoader';
 
 const DEFAULT_API = 'http://localhost:5000';
 
-const LoadingContext = React.createContext({
-  isProcessingRemote: false,
-  setIsProcessingRemote: () => {},
-  remoteLoadingMsg: "",
-  setRemoteLoadingMsg: () => {}
-});
+
 
 export default function App() {
   // ─── Theme ───
@@ -38,7 +33,6 @@ export default function App() {
 
   // ─── Leads State ───
   const [leads, setLeads] = useState([]);
-  const [filtered, setFiltered] = useState([]);
   const [selId, setSelId] = useState(null);
   const [selLead, setSelLead] = useState(null);
   const [search, setSearch] = useState('');
@@ -585,7 +579,7 @@ export default function App() {
   }, [selId, leads]);
 
   // ─── Filter & Sort ───
-  useEffect(() => {
+  const filtered = useMemo(() => {
     let r = [...leads];
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -596,7 +590,7 @@ export default function App() {
     else if (sort === 'score-asc') r.sort((a, b) => a.ai_score - b.ai_score);
     else if (sort === 'budget-desc') r.sort((a, b) => b.budget - a.budget);
     else if (sort === 'date-desc') r.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    setFiltered(r);
+    return r;
   }, [leads, search, stage, sort]);
 
   // ─── Stage Change ───
@@ -849,7 +843,11 @@ export default function App() {
         });
         if (!r.ok) throw new Error("Gemini extraction failed");
         const j = await r.json();
-        let c = j.candidates[0].content.parts[0].text;
+        const rawText = j?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!rawText) {
+          throw new Error("Invalid response received from Gemini API.");
+        }
+        let c = rawText.trim();
         if (c.startsWith('```')) c = c.replace(/^```(?:json)?\n/, '').replace(/\n```$/, '').trim();
         const parsed = JSON.parse(c.trim());
         setExtracted(parsed);
@@ -995,8 +993,7 @@ export default function App() {
   // RENDER
   // ════════════════════════════════════════
   return (
-    <LoadingContext.Provider value={{ isProcessingRemote, setIsProcessingRemote, remoteLoadingMsg, setRemoteLoadingMsg }}>
-      <div className="h-screen w-screen flex bg-app-bg text-app-text antialiased font-sans overflow-hidden">
+    <div className="h-screen w-screen flex bg-app-bg text-app-text antialiased font-sans overflow-hidden">
 
       {/* ── Toasts ── */}
       <div className="fixed top-4 right-4 z-[60] flex flex-col gap-2 pointer-events-none">
@@ -1874,7 +1871,6 @@ export default function App() {
       )}
       <LohithLoader isLoading={isProcessingRemote} loadingMsg={remoteLoadingMsg} />
     </div>
-    </LoadingContext.Provider>
   );
 }
 
