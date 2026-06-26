@@ -2215,7 +2215,7 @@ function LocalAudioPlayer({ rec, downloadRecording, removeStoredRecording }) {
 
 // ─── LoginPage Component ───
 function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjsTemplateId, emailjsPublicKey }) {
-  const [activeTab, setActiveTab] = useState('otp'); // 'otp', 'password', 'forgot'
+  const [activeTab, setActiveTab] = useState('otp'); // 'otp', 'password', 'forgot', 'set-password', 'forgot-reset'
   const [email, setEmail] = useState(() => sessionStorage.getItem('login_email') || '');
   const [otp, setOtp] = useState('');
   const [password, setPassword] = useState('');
@@ -2248,6 +2248,15 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     return hashHex + 'aA1!'; // Append to meet typical strong password requirements
+  };
+
+  const hashPassword = async (plainPassword) => {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(plainPassword + 'lohitha-dharma-crm-password-salt');
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return hashHex;
   };
 
   const handleSendOTP = async (e) => {
@@ -2328,28 +2337,92 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
         throw new Error("Verification code has expired. Please request a new one.");
       }
 
-      setLoadingMsg("Authenticating session...");
-      const credential = await getClientCredential(email);
-      
-      try {
+      setLoadingMsg("Checking user registry...");
+      const userRef = doc(db, "users", email.trim().toLowerCase());
+      const userDoc = await getDoc(userRef);
+
+      if (userDoc.exists()) {
+        // Existing user, sign in directly with client-side credential hash
+        setLoadingMsg("Authenticating session...");
+        const credential = await getClientCredential(email);
         const userCredential = await signInWithEmailAndPassword(auth, email.trim(), credential);
         clearSessionOtp();
         onAuthSuccess(userCredential.user);
         toast("Welcome back!", "success");
+      } else {
+        // New user! Transition to set password
+        setIsLoading(false);
+        setPassword('');
+        setActiveTab('set-password');
+        toast("OTP verified! Please set a password for your account.", "success");
+      }
+    } catch (err) {
+      console.error(err);
+      toast(err.message || "Verification failed.", "error");
+      setIsLoading(false);
+    }
+  };
+
+  const handleVerifyResetOTP = async (e) => {
+    e.preventDefault();
+    if (!email || !otp) return;
+    setIsLoading(true);
+    setLoadingMsg("Verifying reset code...");
+    try {
+      if (otp.trim() !== storedOtp) {
+        throw new Error("Invalid verification code.");
+      }
+      if (!otpCreatedAt || Date.now() - otpCreatedAt > 300000) {
+        throw new Error("Verification code has expired. Please request a new one.");
+      }
+
+      setIsLoading(false);
+      setPassword('');
+      setActiveTab('forgot-reset');
+      toast("OTP verified! Please set your new password.", "success");
+    } catch (err) {
+      console.error(err);
+      toast(err.message || "Verification failed.", "error");
+      setIsLoading(false);
+    }
+  };
+
+  const handleRegisterAccount = async (e) => {
+    e.preventDefault();
+    if (!email || !password) return;
+    if (password.length < 6) {
+      toast("Password must be at least 6 characters.", "warning");
+      return;
+    }
+    setIsLoading(true);
+    setLoadingMsg("Creating secure agent account...");
+    try {
+      const credential = await getClientCredential(email);
+      let userCredential;
+      try {
+        userCredential = await createUserWithEmailAndPassword(auth, email.trim(), credential);
       } catch (authErr) {
-        if (authErr.code === 'auth/user-not-found' || authErr.code === 'auth/invalid-login-credentials' || authErr.code === 'auth/invalid-credential') {
-          setLoadingMsg("Creating secure agent account...");
-          const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), credential);
-          clearSessionOtp();
-          onAuthSuccess(userCredential.user);
-          toast("Agent registered and signed in successfully!", "success");
+        if (authErr.code === 'auth/email-already-in-use') {
+          userCredential = await signInWithEmailAndPassword(auth, email.trim(), credential);
         } else {
           throw authErr;
         }
       }
+
+      setLoadingMsg("Saving credentials to Firestore...");
+      const passHash = await hashPassword(password);
+      await setDoc(doc(db, "users", email.trim().toLowerCase()), {
+        passwordHash: passHash,
+        email: email.trim().toLowerCase(),
+        createdAt: new Date().toISOString()
+      });
+
+      clearSessionOtp();
+      onAuthSuccess(userCredential.user);
+      toast("Account registered and signed in successfully!", "success");
     } catch (err) {
       console.error(err);
-      toast(err.message || "Login failed.", "error");
+      toast(err.message || "Registration failed.", "error");
     } finally {
       setIsLoading(false);
     }
@@ -2361,35 +2434,53 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
     setIsLoading(true);
     setLoadingMsg("Verifying credentials...");
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      const userRef = doc(db, "users", email.trim().toLowerCase());
+      const userDoc = await getDoc(userRef);
+
+      if (!userDoc.exists()) {
+        throw new Error("User not registered. Please sign in via OTP first.");
+      }
+
+      const passHash = await hashPassword(password);
+      if (userDoc.data().passwordHash !== passHash) {
+        throw new Error("Incorrect password. Please try again.");
+      }
+
+      const credential = await getClientCredential(email);
+      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), credential);
       onAuthSuccess(userCredential.user);
       toast("Welcome back!", "success");
     } catch (err) {
       console.error(err);
-      let errMsg = "Failed to sign in. Please verify your password.";
-      if (err.code === 'auth/user-not-found') errMsg = "User not registered. Please sign in via OTP first.";
-      else if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-login-credentials' || err.code === 'auth/invalid-credential') errMsg = "Incorrect password.";
-      toast(errMsg, "error");
+      toast(err.message || "Login failed.", "error");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleForgotPassword = async (e) => {
+  const handleResetPassword = async (e) => {
     e.preventDefault();
-    if (!email) {
-      toast("Please enter your registered email address.", "warning");
+    if (!email || !password) return;
+    if (password.length < 6) {
+      toast("Password must be at least 6 characters.", "warning");
       return;
     }
     setIsLoading(true);
-    setLoadingMsg("Sending password reset link...");
+    setLoadingMsg("Resetting password...");
     try {
-      await sendPasswordResetEmail(auth, email.trim());
-      toast("Password reset link sent to " + email, "success");
-      setActiveTab('password');
+      const passHash = await hashPassword(password);
+      await setDoc(doc(db, "users", email.trim().toLowerCase()), {
+        passwordHash: passHash
+      }, { merge: true });
+
+      const credential = await getClientCredential(email);
+      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), credential);
+      clearSessionOtp();
+      onAuthSuccess(userCredential.user);
+      toast("Password reset successfully! Session authenticated.", "success");
     } catch (err) {
       console.error(err);
-      toast(err.message || "Failed to send reset link.", "error");
+      toast(err.message || "Reset failed.", "error");
     } finally {
       setIsLoading(false);
     }
@@ -2415,7 +2506,7 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
 
         {/* Auth Card */}
         <div className="bg-[#1C1917]/70 backdrop-blur-md border border-[#3E3835] rounded-2xl p-6 shadow-2xl">
-          {activeTab !== 'forgot' && (
+          {activeTab !== 'forgot' && activeTab !== 'set-password' && activeTab !== 'forgot-reset' && (
             <div className="flex border-b border-[#3E3835] mb-6">
               <button 
                 type="button"
@@ -2487,7 +2578,7 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
                 type="submit" 
                 className="w-full mt-2 py-2.5 bg-[#C5A880] hover:bg-[#DBC09B] text-[#1C1917] font-bold text-xs rounded-lg shadow-lg shadow-[#C5A880]/5 transition-all cursor-pointer"
               >
-                {otpSent ? 'Verify & Sign In' : 'Send Verification Code'}
+                {otpSent ? 'Verify & Continue' : 'Send Verification Code'}
               </button>
             </form>
           )}
@@ -2536,28 +2627,38 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
             </form>
           )}
 
-          {activeTab === 'forgot' && (
+          {activeTab === 'set-password' && (
             <div className="space-y-4 animate-slide-in">
               <div className="flex items-center justify-between border-b border-[#3E3835] pb-3 mb-2">
-                <h3 className="text-xs font-bold text-white">Reset Password</h3>
+                <h3 className="text-xs font-bold text-white">Create Account</h3>
                 <button 
                   type="button"
-                  onClick={() => { setActiveTab('password'); }}
+                  onClick={() => { setActiveTab('otp'); clearSessionOtp(); }}
                   className="text-[10px] text-[#A8A29E] hover:text-white cursor-pointer"
                 >
-                  ← Back to Login
+                  ← Back
                 </button>
               </div>
 
-              <form onSubmit={handleForgotPassword} className="space-y-4">
+              <form onSubmit={handleRegisterAccount} className="space-y-4">
                 <div>
-                  <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">Registered Email</label>
+                  <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">Email Address</label>
                   <input 
                     type="email" 
-                    required 
+                    disabled 
                     value={email} 
-                    onChange={e => setEmail(e.target.value)} 
-                    placeholder="name@company.com" 
+                    className="w-full px-3 py-2.5 bg-[#121212]/50 border border-[#3E3835] rounded-lg text-xs text-white/50 focus:outline-none disabled:opacity-50"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">Set Account Password</label>
+                  <input 
+                    type="password" 
+                    required 
+                    value={password} 
+                    onChange={e => setPassword(e.target.value)} 
+                    placeholder="Create a strong password (min 6 chars)" 
                     className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] transition-colors"
                   />
                 </div>
@@ -2566,7 +2667,124 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
                   type="submit" 
                   className="w-full mt-2 py-2.5 bg-[#C5A880] hover:bg-[#DBC09B] text-[#1C1917] font-bold text-xs rounded-lg shadow-lg shadow-[#C5A880]/5 transition-all cursor-pointer"
                 >
-                  Send Reset Link
+                  Register & Sign In
+                </button>
+              </form>
+            </div>
+          )}
+
+          {activeTab === 'forgot' && (
+            <div className="space-y-4 animate-slide-in">
+              <div className="flex items-center justify-between border-b border-[#3E3835] pb-3 mb-2">
+                <h3 className="text-xs font-bold text-white">Reset Password</h3>
+                <button 
+                  type="button"
+                  onClick={() => { setActiveTab('password'); clearSessionOtp(); }}
+                  className="text-[10px] text-[#A8A29E] hover:text-white cursor-pointer"
+                >
+                  ← Back to Login
+                </button>
+              </div>
+
+              <form onSubmit={otpSent ? handleVerifyResetOTP : handleSendOTP} className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">Registered Email</label>
+                  <input 
+                    type="email" 
+                    required 
+                    disabled={otpSent}
+                    value={email} 
+                    onChange={e => setEmail(e.target.value)} 
+                    placeholder="name@company.com" 
+                    className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] transition-colors disabled:opacity-50"
+                  />
+                </div>
+
+                {otpSent && (
+                  <div className="animate-slide-in">
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block">One-Time Password (OTP)</label>
+                      <button 
+                        type="button" 
+                        onClick={clearSessionOtp}
+                        className="text-[10px] text-[#C5A880] hover:underline cursor-pointer"
+                      >
+                        Change Email
+                      </button>
+                    </div>
+                    <input 
+                      type="text" 
+                      required 
+                      maxLength={6}
+                      value={otp} 
+                      onChange={e => setOtp(e.target.value.replace(/\D/g, ''))} 
+                      placeholder="Enter 6-digit code" 
+                      className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white text-center font-mono tracking-widest focus:outline-none focus:border-[#C5A880] transition-colors"
+                    />
+                    <div className="flex justify-between items-center mt-2">
+                      <span className="text-[10px] text-[#A8A29E]">Code is valid for 5 minutes</span>
+                      <button 
+                        type="button" 
+                        onClick={handleSendOTP}
+                        className="text-[10px] text-[#C5A880] hover:underline cursor-pointer"
+                      >
+                        Resend Code
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <button 
+                  type="submit" 
+                  className="w-full mt-2 py-2.5 bg-[#C5A880] hover:bg-[#DBC09B] text-[#1C1917] font-bold text-xs rounded-lg shadow-lg shadow-[#C5A880]/5 transition-all cursor-pointer"
+                >
+                  {otpSent ? 'Verify Reset Code' : 'Send Reset Code'}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {activeTab === 'forgot-reset' && (
+            <div className="space-y-4 animate-slide-in">
+              <div className="flex items-center justify-between border-b border-[#3E3835] pb-3 mb-2">
+                <h3 className="text-xs font-bold text-white">Choose New Password</h3>
+                <button 
+                  type="button"
+                  onClick={() => { setActiveTab('otp'); clearSessionOtp(); }}
+                  className="text-[10px] text-[#A8A29E] hover:text-white cursor-pointer"
+                >
+                  ← Cancel
+                </button>
+              </div>
+
+              <form onSubmit={handleResetPassword} className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">Email Address</label>
+                  <input 
+                    type="email" 
+                    disabled 
+                    value={email} 
+                    className="w-full px-3 py-2.5 bg-[#121212]/50 border border-[#3E3835] rounded-lg text-xs text-white/50 focus:outline-none disabled:opacity-50"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">New Password</label>
+                  <input 
+                    type="password" 
+                    required 
+                    value={password} 
+                    onChange={e => setPassword(e.target.value)} 
+                    placeholder="Enter new strong password (min 6 chars)" 
+                    className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] transition-colors"
+                  />
+                </div>
+
+                <button 
+                  type="submit" 
+                  className="w-full mt-2 py-2.5 bg-[#C5A880] hover:bg-[#DBC09B] text-[#1C1917] font-bold text-xs rounded-lg shadow-lg shadow-[#C5A880]/5 transition-all cursor-pointer"
+                >
+                  Save & Reset Password
                 </button>
               </form>
             </div>
