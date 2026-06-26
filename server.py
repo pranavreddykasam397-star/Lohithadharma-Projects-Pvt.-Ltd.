@@ -203,7 +203,108 @@ def init_db():
                 cursor.execute('INSERT INTO ai_insights (lead_id, insight) VALUES (?, ?)', (lead["id"], insight))
                 
         conn.commit()
+    
+    try:
+        deduplicate_leads_db()
+    except Exception as dedup_err:
+        print(f"Deduplication startup failed: {str(dedup_err)}")
+        
     conn.close()
+
+def delete_lead_from_firestore(lead_id):
+    project_id = os.environ.get("FIREBASE_PROJECT_ID", "lohitha-dharma-project")
+    api_key = os.environ.get("FIREBASE_API_KEY", "AIzaSyCu63Ej-ViFR71ifFjDJWES0ylWjp1iZLQ")
+    
+    url = f"https://firestore.googleapis.com/v1/projects/{project_id}/databases/default/documents/leads/{lead_id}?key={api_key}"
+    import urllib.request
+    try:
+        req = urllib.request.Request(
+            url,
+            method="DELETE",
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        )
+        with urllib.request.urlopen(req) as response:
+            print(f"Firestore Deduplication Delete: Deleted duplicate lead {lead_id} in Firestore.")
+            return True
+    except Exception as e:
+        print(f"Firestore Deduplication Delete Failure for Lead {lead_id}: {str(e)}")
+        return False
+
+def deduplicate_leads_db():
+    print("Deduplication: Running startup lead deduplication check...")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM leads")
+    leads = [dict(row) for row in cursor.fetchall()]
+    
+    if not leads:
+        conn.close()
+        return
+
+    def normalize_phone(phone_str):
+        if not phone_str:
+            return ""
+        digits = re.sub(r'\D', '', phone_str)
+        return digits[-10:] if len(digits) >= 10 else digits
+
+    grouped = {}
+    for lead in leads:
+        norm = normalize_phone(lead["phone"])
+        if not norm:
+            continue
+        if norm not in grouped:
+            grouped[norm] = []
+        grouped[norm].append(lead)
+
+    for norm, group in grouped.items():
+        if len(group) <= 1:
+            continue
+            
+        print(f"Deduplication: Found {len(group)} duplicate leads for normalized phone {norm}")
+        group.sort(key=lambda x: (x["ai_score"], x["created_at"]), reverse=True)
+        
+        kept_lead = group[0]
+        deleted_leads = group[1:]
+        
+        updated = False
+        for del_lead in deleted_leads:
+            if (not kept_lead.get("email") or kept_lead["email"] == "investor@lohithadharma.com") and del_lead.get("email") and del_lead["email"] != "investor@lohithadharma.com":
+                kept_lead["email"] = del_lead["email"]
+                updated = True
+            
+            cursor.execute("SELECT insight FROM ai_insights WHERE lead_id = ?", (del_lead["id"],))
+            del_insights = [r["insight"] for r in cursor.fetchall()]
+            for ins in del_insights:
+                cursor.execute("SELECT COUNT(*) FROM ai_insights WHERE lead_id = ? AND insight = ?", (kept_lead["id"], ins))
+                if cursor.fetchone()[0] == 0:
+                    cursor.execute("INSERT INTO ai_insights (lead_id, insight) VALUES (?, ?)", (kept_lead["id"], ins))
+        
+        if updated:
+            cursor.execute("UPDATE leads SET email = ? WHERE id = ?", (kept_lead["email"], kept_lead["id"]))
+            
+        for del_lead in deleted_leads:
+            print(f"Deduplication: Merging & deleting duplicate lead {del_lead['id']} ({del_lead['name']})")
+            cursor.execute("UPDATE calls SET lead_id = ? WHERE lead_id = ?", (kept_lead["id"], del_lead["id"]))
+            cursor.execute("DELETE FROM leads WHERE id = ?", (del_lead["id"],))
+            cursor.execute("DELETE FROM ai_insights WHERE lead_id = ?", (del_lead["id"],))
+            
+            try:
+                delete_lead_from_firestore(del_lead["id"])
+            except Exception as fs_err:
+                print(f"Deduplication Firestore delete error: {str(fs_err)}")
+                
+        try:
+            conn.commit()
+            sync_lead_to_firestore(kept_lead["id"])
+        except Exception as fs_err:
+            print(f"Deduplication Firestore sync error: {str(fs_err)}")
+            
+    conn.commit()
+    conn.close()
+
 
 # ==========================================
 # Core AI Business Logic: Lead Qualification

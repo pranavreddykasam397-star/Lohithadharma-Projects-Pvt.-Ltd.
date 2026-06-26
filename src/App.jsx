@@ -184,6 +184,14 @@ export default function App() {
             setCallStatus(activeCall.status);
             toast(`Call status updated: ${activeCall.status}`, activeCall.status === 'completed' ? 'success' : 'error');
             fetchCallsHistory();
+            
+            // Automatically process transcript when the call completes!
+            if (activeCall.status === 'completed' && activeCall.transcript) {
+              setTimeout(() => {
+                processRemoteTranscript(activeCall.transcript, activeCall.id, activeCall.phone);
+              }, 1000);
+            }
+            
             return; // Stop polling
           }
         }
@@ -211,7 +219,7 @@ export default function App() {
     };
   }, [activeCallId, callStatus, backendUrl]);
 
-  const processRemoteTranscript = async (transcriptText, callId) => {
+  const processRemoteTranscript = async (transcriptText, callId, phone) => {
     if (!transcriptText || !transcriptText.trim()) {
       toast("No transcript content to process.", "error");
       return;
@@ -241,6 +249,7 @@ export default function App() {
         if (!parsed) {
           throw new Error("Details extraction failed or returned empty result.");
         }
+        setExtracted({ ...parsed, phone });
         toast("Transcript processed successfully with Lohith AI!", "success");
       } catch (err) {
         console.error(`Attempt ${attempts} failed:`, err);
@@ -266,7 +275,7 @@ export default function App() {
     }
   };
 
-  const processRemoteRecording = async (recordingUrl, callId) => {
+  const processRemoteRecording = async (recordingUrl, callId, phone) => {
     if (!recordingUrl) {
       toast("No recording URL found for this call.", "error");
       return;
@@ -316,7 +325,11 @@ export default function App() {
 
         setRemoteLoadingMsg("Running detail extraction on transcript...");
         
-        await extractDetails(transcriptText);
+        const parsed = await extractDetails(transcriptText);
+        if (!parsed) {
+          throw new Error("Details extraction failed or returned empty result.");
+        }
+        setExtracted({ ...parsed, phone });
         
         toast("Audio recording processed successfully with Lohith AI!", "success");
       } catch (err) {
@@ -872,34 +885,63 @@ export default function App() {
   const saveExtracted = async () => {
     if (!extracted) return;
     setSaving(true);
-    const leadId = `LD-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    // Normalize phone numbers helper: extract last 10 digits
+    const normalizePhone = (phoneStr) => {
+      if (!phoneStr) return "";
+      const digits = phoneStr.replace(/\D/g, "");
+      return digits.length >= 10 ? digits.slice(-10) : digits;
+    };
+
+    const targetPhone = extracted.phone || '+91 98765 43210';
+    const targetPhoneNorm = normalizePhone(targetPhone);
+
+    // Search local leads array for matching phone number
+    const existingLead = targetPhoneNorm
+      ? leads.find(l => normalizePhone(l.phone) === targetPhoneNorm)
+      : null;
+
+    const leadId = existingLead ? existingLead.id : `LD-${Math.floor(1000 + Math.random() * 9000)}`;
     const budgetVal = Math.max(0, parseInt(extracted.budget || 0));
+
     const pay = { 
       id: leadId,
       name: extracted.name, 
-      email: extracted.email || 'investor@lohithadharma.com', 
-      phone: '+91 98765 43210', 
+      email: extracted.email || (existingLead ? existingLead.email : 'investor@lohithadharma.com'), 
+      phone: targetPhone, 
       plot_type: plotFromBudget(budgetVal), 
       location: extracted.location, 
       budget: budgetVal, 
       timeline: extracted.timeline, 
       token_paid: extracted.token_paid 
     };
+
     try {
       const sc = calcScore(extracted.timeline, extracted.token_paid, budgetVal);
       const st = sc >= 80 ? 'Qualified' : sc >= 60 ? 'Warm' : 'Cold';
+
+      // Merge insights if lead already exists
+      let insights = [
+        extracted.token_paid ? 'Token cleared.' : 'Token pending.', 
+        `From voice call: ${extracted.location}`
+      ];
+      if (existingLead && Array.isArray(existingLead.insights)) {
+        const uniqueInsights = new Set([...existingLead.insights, ...insights]);
+        insights = Array.from(uniqueInsights);
+      }
+
       const payload = {
         ...pay,
         ai_score: sc,
         status: st,
-        created_at: new Date().toISOString(),
-        agent_assigned: 'Sarah Jenkins',
-        insights: [extracted.token_paid ? 'Token cleared.' : 'Token pending.', `From voice call: ${extracted.location}`]
+        created_at: existingLead ? (existingLead.created_at || new Date().toISOString()) : new Date().toISOString(),
+        agent_assigned: existingLead ? (existingLead.agent_assigned || 'Sarah Jenkins') : 'Sarah Jenkins',
+        insights: insights
       };
-      
+
       await setDoc(doc(db, 'leads', leadId), payload);
       setSelId(leadId);
-      toast('Saved!', 'success');
+      toast(existingLead ? 'Existing lead updated!' : 'Saved!', 'success');
     } catch (err) {
       console.error(err);
       toast('Failed to save to database.', 'error');
@@ -1314,6 +1356,7 @@ export default function App() {
                   <div className="grid grid-cols-2 gap-3 text-xs">
                     {[
                       ['Name', extracted.name],
+                      ['Phone', extracted.phone || 'N/A'],
                       ['Email', extracted.email || 'N/A'],
                       ['Budget', fmt(extracted.budget)],
                       ['Location', extracted.location],
@@ -1640,7 +1683,7 @@ export default function App() {
                                         <div className="flex justify-end gap-2">
                                           {call.transcript && (
                                             <button 
-                                              onClick={() => processRemoteTranscript(call.transcript, call.id)}
+                                              onClick={() => processRemoteTranscript(call.transcript, call.id, call.phone)}
                                               disabled={analyzing || isProcessingRemote}
                                               className="px-3 py-1.5 bg-app-accent/20 hover:bg-app-accent/35 border border-app-accent text-emerald-300 rounded-lg text-[10px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                             >
@@ -1649,7 +1692,7 @@ export default function App() {
                                           )}
                                           {call.recording_url && (
                                             <button 
-                                              onClick={() => processRemoteRecording(call.recording_url, call.id)}
+                                              onClick={() => processRemoteRecording(call.recording_url, call.id, call.phone)}
                                               disabled={analyzing || isProcessingRemote}
                                               className="px-3 py-1.5 bg-[#C5A880]/15 hover:bg-[#C5A880]/30 border border-[#C5A880]/50 text-[#C5A880] rounded-lg text-[10px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                             >
