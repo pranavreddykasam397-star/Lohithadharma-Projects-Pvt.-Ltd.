@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db, initFirebaseSeeds } from './firebase';
 import { collection, getDocs, getDoc, doc, setDoc, updateDoc, onSnapshot, query, orderBy, deleteDoc } from 'firebase/firestore';
 import { saveRecording, getRecordings, deleteRecording } from './audioStorage';
+import LohithLoader from './LohithLoader';
+
 
 const DEFAULT_API = 'http://localhost:5000';
 
@@ -1827,22 +1829,7 @@ export default function App() {
           </div>
         </div>
       )}
-      {isProcessingRemote && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[60] flex flex-col items-center justify-center p-6 transition-all duration-300">
-          <div className="bg-app-panel border border-app-border rounded-2xl p-8 max-w-sm w-full text-center space-y-4 shadow-2xl">
-            <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
-              <div className="absolute inset-0 rounded-full border-4 border-app-accent/25 animate-ping"></div>
-              <div className="absolute inset-0 rounded-full border-4 border-app-accent border-t-transparent animate-spin"></div>
-              <span className="text-2xl">🤖</span>
-            </div>
-            <h3 className="text-sm font-bold text-app-text animate-pulse">Lohith AI Analysis</h3>
-            <p className="text-xs text-app-muted font-medium">{remoteLoadingMsg || "Processing recording..."}</p>
-            <div className="text-[10px] text-app-muted italic bg-app-input/50 py-1.5 px-3 rounded-lg border border-app-border">
-              Analyzing call structure and extracting lead details. Please don't close the application.
-            </div>
-          </div>
-        </div>
-      )}
+      <LohithLoader isLoading={isProcessingRemote} loadingMsg={remoteLoadingMsg} />
     </div>
     </LoadingContext.Provider>
   );
