@@ -264,6 +264,83 @@ export default function App() {
     }
   };
 
+  const processRemoteRecording = async (recordingUrl, callId) => {
+    if (!recordingUrl) {
+      toast("No recording URL found for this call.", "error");
+      return;
+    }
+
+    const confirmProcess = window.confirm("Process this call recording with Lohith AI?");
+    if (!confirmProcess) return;
+
+    // Redirect to Voice Capture tab
+    setTab('voice-capture');
+
+    setIsProcessingRemote(true);
+    setRemoteLoadingMsg("Downloading recording from Bland AI...");
+
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    const runProcessing = async () => {
+      try {
+        attempts++;
+        const proxyUrl = `${backendUrl}/api/calls/proxy-recording?url=${encodeURIComponent(recordingUrl)}`;
+        
+        const response = await fetch(proxyUrl);
+        if (!response.ok) {
+          if (response.status === 202 || response.status === 404) {
+            throw new Error("Recording is still being prepared by Bland AI.");
+          }
+          throw new Error(`Failed to download audio recording (HTTP ${response.status})`);
+        }
+
+        const blob = await response.blob();
+        if (blob.size === 0) {
+          throw new Error("Recording file is empty (0 bytes).");
+        }
+
+        const fileName = `call-recording-${callId || 'unknown'}.mp3`;
+        const fileMime = response.headers.get('Content-Type') || 'audio/mpeg';
+        const file = new File([blob], fileName, { type: fileMime });
+
+        setRemoteLoadingMsg("Running transcription on audio...");
+        
+        const transcriptText = await processFile(file, true);
+        
+        if (!transcriptText || !transcriptText.trim()) {
+          throw new Error("Transcription resulted in empty text.");
+        }
+
+        setRemoteLoadingMsg("Running detail extraction on transcript...");
+        
+        await extractDetails(transcriptText);
+        
+        toast("Audio recording processed successfully with Lohith AI!", "success");
+      } catch (err) {
+        console.error(`Attempt ${attempts} failed:`, err);
+        if (attempts < maxAttempts) {
+          setRemoteLoadingMsg(`Processing failed. Retrying in 5 seconds... (Attempt ${attempts}/${maxAttempts})`);
+          toast("Processing failed. Retrying in 5 seconds...", "warning");
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          return runProcessing();
+        } else {
+          throw new Error(err.message || "Failed to process audio recording after multiple attempts.");
+        }
+      }
+    };
+
+    try {
+      await runProcessing();
+    } catch (err) {
+      console.error("Error processing remote recording:", err);
+      toast(err.message, "error");
+    } finally {
+      setIsProcessingRemote(false);
+      setRemoteLoadingMsg("");
+    }
+  };
+
 
   const connectToCallStream = (callId) => {
     if (sseRef.current) {
@@ -1529,7 +1606,7 @@ export default function App() {
                                 </div>
                                 <div className="flex justify-between items-center text-[11px]">
                                   <span className="text-app-muted">Duration: {call.duration} seconds</span>
-                              <div className="flex items-center gap-3">
+                                  <div className="flex items-center gap-3">
                                     <button 
                                       onClick={() => setExpandedCallId(expandedCallId === call.id ? null : call.id)}
                                       className="text-app-accent hover:underline font-semibold cursor-pointer"
@@ -1558,17 +1635,26 @@ export default function App() {
                                             <audio src={call.recording_url} controls className="w-full h-8 flex-1" />
                                           </div>
                                         )}
-                                        {call.transcript && (
-                                          <div className="flex justify-end">
+                                        <div className="flex justify-end gap-2">
+                                          {call.transcript && (
                                             <button 
                                               onClick={() => processRemoteTranscript(call.transcript, call.id)}
                                               disabled={analyzing || isProcessingRemote}
                                               className="px-3 py-1.5 bg-app-accent/20 hover:bg-app-accent/35 border border-app-accent text-emerald-300 rounded-lg text-[10px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                             >
-                                              ✨ Process with Lohith AI
+                                              ✨ Process Transcript
                                             </button>
-                                          </div>
-                                        )}
+                                          )}
+                                          {call.recording_url && (
+                                            <button 
+                                              onClick={() => processRemoteRecording(call.recording_url, call.id)}
+                                              disabled={analyzing || isProcessingRemote}
+                                              className="px-3 py-1.5 bg-[#C5A880]/15 hover:bg-[#C5A880]/30 border border-[#C5A880]/50 text-[#C5A880] rounded-lg text-[10px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                            >
+                                              🎵 Process Audio
+                                            </button>
+                                          )}
+                                        </div>
                                       </div>
                                     )}
                                   </div>
