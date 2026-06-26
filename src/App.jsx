@@ -103,7 +103,6 @@ export default function App() {
   const sseRef = useRef(null);
   const [isProcessingRemote, setIsProcessingRemote] = useState(false);
   const [remoteLoadingMsg, setRemoteLoadingMsg] = useState("");
-  const [checkingRecordings, setCheckingRecordings] = useState({});
 
   const saveBlandKey = (val) => { setBlandKey(val); localStorage.setItem('bland_api_key', val); };
   const saveWebhookBase = (val) => { setWebhookBase(val); localStorage.setItem('webhook_base_url', val); };
@@ -210,57 +209,25 @@ export default function App() {
     };
   }, [activeCallId, callStatus, backendUrl]);
 
-  // Check recording availability when expandedCallId is set
-  useEffect(() => {
-    if (expandedCallId && callsHistory.length > 0) {
-      const call = callsHistory.find(c => c.id === expandedCallId);
-      if (call && call.recording_url && !checkingRecordings[call.id]) {
-        checkRecordingAvailability(call.id, call.recording_url);
-      }
-    }
-  }, [expandedCallId, callsHistory]);
-
-  const checkRecordingAvailability = async (callId, url) => {
-    setCheckingRecordings(prev => ({ ...prev, [callId]: 'checking' }));
-    try {
-      const response = await fetch(`${backendUrl}/api/calls/proxy-recording?url=${encodeURIComponent(url)}`, {
-        method: 'GET',
-        headers: { 'Range': 'bytes=0-1' }
-      });
-      
-      if (response.status === 200 || response.status === 206) {
-        const contentLength = response.headers.get('Content-Length');
-        if (contentLength === '0') {
-          setCheckingRecordings(prev => ({ ...prev, [callId]: 'not-ready' }));
-          setTimeout(() => checkRecordingAvailability(callId, url), 3000);
-        } else {
-          setCheckingRecordings(prev => ({ ...prev, [callId]: 'ready' }));
-        }
-      } else {
-        setCheckingRecordings(prev => ({ ...prev, [callId]: 'not-ready' }));
-        setTimeout(() => checkRecordingAvailability(callId, url), 3000);
-      }
-    } catch (err) {
-      console.error("Error checking recording availability:", err);
-      setCheckingRecordings(prev => ({ ...prev, [callId]: 'not-ready' }));
-      setTimeout(() => checkRecordingAvailability(callId, url), 5000);
-    }
-  };
-
-  const processRemoteRecording = async (recordingUrl, callId) => {
-    if (!recordingUrl) {
-      toast("No recording URL found for this call.", "error");
+  const processRemoteTranscript = async (transcriptText, callId) => {
+    if (!transcriptText || !transcriptText.trim()) {
+      toast("No transcript content to process.", "error");
       return;
     }
 
-    const confirmProcess = window.confirm("Process this recording with Lohith AI?");
+    const confirmProcess = window.confirm("Process this transcript with Lohith AI?");
     if (!confirmProcess) return;
 
     // Redirect to Voice Capture tab
     setTab('voice-capture');
 
+    // Load transcript text into input field
+    setTranscript(transcriptText);
+    setDetLang('Outbound Call Transcript');
+    setExtracted(null);
+
     setIsProcessingRemote(true);
-    setRemoteLoadingMsg("Preparing audio from Bland AI...");
+    setRemoteLoadingMsg("Running Gemini details extraction...");
 
     let attempts = 0;
     const maxAttempts = 3;
@@ -268,40 +235,11 @@ export default function App() {
     const runProcessing = async () => {
       try {
         attempts++;
-        const proxyUrl = `${backendUrl}/api/calls/proxy-recording?url=${encodeURIComponent(recordingUrl)}`;
-        
-        const response = await fetch(proxyUrl);
-        if (!response.ok) {
-          if (response.status === 202 || response.status === 404) {
-            throw new Error("Recording is still being prepared by Bland AI.");
-          }
-          throw new Error(`Failed to download audio recording (HTTP ${response.status})`);
+        const parsed = await extractDetails(transcriptText);
+        if (!parsed) {
+          throw new Error("Details extraction failed or returned empty result.");
         }
-
-        const blob = await response.blob();
-        if (blob.size === 0) {
-          throw new Error("Recording file is empty (0 bytes).");
-        }
-
-        const fileName = `call-recording-${callId || 'unknown'}.mp3`;
-        const fileMime = response.headers.get('Content-Type') || 'audio/mpeg';
-        const file = new File([blob], fileName, { type: fileMime });
-
-        setRemoteLoadingMsg("Running Gemini transcription & analysis...");
-        
-        // Transcribe (skip storage confirmation prompt)
-        const transcriptText = await processFile(file, true);
-        
-        if (!transcriptText || !transcriptText.trim()) {
-          throw new Error("Transcription resulted in empty text.");
-        }
-
-        setRemoteLoadingMsg("Running Gemini details extraction...");
-        
-        // Auto-extract details
-        await extractDetails(transcriptText);
-        
-        toast("Recording processed successfully with Gemini!", "success");
+        toast("Transcript processed successfully with Lohith AI!", "success");
       } catch (err) {
         console.error(`Attempt ${attempts} failed:`, err);
         if (attempts < maxAttempts) {
@@ -310,7 +248,7 @@ export default function App() {
           await new Promise(resolve => setTimeout(resolve, 5000));
           return runProcessing();
         } else {
-          throw new Error(err.message || "Failed to process recording after multiple attempts.");
+          throw new Error(err.message || "Failed to process transcript after multiple attempts.");
         }
       }
     };
@@ -318,13 +256,14 @@ export default function App() {
     try {
       await runProcessing();
     } catch (err) {
-      console.error("Error processing remote recording:", err);
+      console.error("Error processing remote transcript:", err);
       toast(err.message, "error");
     } finally {
       setIsProcessingRemote(false);
       setRemoteLoadingMsg("");
     }
   };
+
 
   const connectToCallStream = (callId) => {
     if (sseRef.current) {
@@ -1590,7 +1529,7 @@ export default function App() {
                                 </div>
                                 <div className="flex justify-between items-center text-[11px]">
                                   <span className="text-app-muted">Duration: {call.duration} seconds</span>
-                                  <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-3">
                                     <button 
                                       onClick={() => setExpandedCallId(expandedCallId === call.id ? null : call.id)}
                                       className="text-app-accent hover:underline font-semibold cursor-pointer"
@@ -1611,29 +1550,25 @@ export default function App() {
                                 {expandedCallId === call.id && (
                                   <div className="p-3 bg-app-input border border-app-border rounded-lg text-xs leading-relaxed text-app-text space-y-1 max-h-[250px] overflow-y-auto whitespace-pre-wrap font-mono font-bold">
                                     {call.transcript ? call.transcript : "No transcript recorded."}
-                                    {call.recording_url && (
+                                    {(call.recording_url || call.transcript) && (
                                       <div className="mt-3 pt-3 border-t border-app-border space-y-3">
-                                        <div className="text-[10px] text-app-muted uppercase font-sans tracking-wider mb-1">Call Recording:</div>
-                                        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                                          <audio src={call.recording_url} controls className="w-full h-8 flex-1" />
-                                          {checkingRecordings[call.id] === 'checking' || checkingRecordings[call.id] === 'not-ready' ? (
+                                        {call.recording_url && (
+                                          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                            <div className="text-[10px] text-app-muted uppercase font-sans tracking-wider">Call Recording:</div>
+                                            <audio src={call.recording_url} controls className="w-full h-8 flex-1" />
+                                          </div>
+                                        )}
+                                        {call.transcript && (
+                                          <div className="flex justify-end">
                                             <button 
-                                              disabled 
-                                              className="px-3 py-1.5 bg-app-input border border-app-border rounded-lg text-[10px] text-app-muted font-semibold flex items-center gap-1.5 cursor-not-allowed"
-                                            >
-                                              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse animate-duration-1000"></span>
-                                              Preparing audio...
-                                            </button>
-                                          ) : (
-                                            <button 
-                                              onClick={() => processRemoteRecording(call.recording_url, call.id)}
+                                              onClick={() => processRemoteTranscript(call.transcript, call.id)}
                                               disabled={analyzing || isProcessingRemote}
                                               className="px-3 py-1.5 bg-app-accent/20 hover:bg-app-accent/35 border border-app-accent text-emerald-300 rounded-lg text-[10px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                             >
                                               ✨ Process with Lohith AI
                                             </button>
-                                          )}
-                                        </div>
+                                          </div>
+                                        )}
                                       </div>
                                     )}
                                   </div>
