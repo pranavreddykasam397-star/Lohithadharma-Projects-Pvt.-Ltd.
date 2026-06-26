@@ -1111,6 +1111,22 @@ export default function App() {
             <button onClick={() => setSettingsModal(true)} className="p-1.5 rounded-lg border border-app-border text-app-muted hover:text-app-text hover:bg-app-input transition-all text-xs cursor-pointer flex items-center gap-1" title="Lohith AI Settings">
               <span>⚙️</span> <span className="hidden sm:inline">Settings</span>
             </button>
+            {user && (
+              <button 
+                onClick={async () => {
+                  try {
+                    await signOut(auth);
+                    toast("Logged out successfully", "success");
+                  } catch (err) {
+                    toast("Logout failed", "error");
+                  }
+                }}
+                className="p-1.5 rounded-lg border border-red-500/20 text-red-500 hover:bg-red-500/10 transition-all text-xs cursor-pointer flex items-center gap-1"
+                title="Sign Out"
+              >
+                <span>🚪</span> <span className="hidden sm:inline">Sign Out</span>
+              </button>
+            )}
           </div>
         </header>
 
