@@ -7,6 +7,7 @@ import LohithLoader from './LohithLoader';
 
 
 const DEFAULT_API = import.meta.env.VITE_BACKEND_URL || 'https://lohithadharma-projects-pvt-ltd.onrender.com';
+const AUTH_API = import.meta.env.VITE_AUTH_API || 'https://us-central1-lohitha-dharma-project.cloudfunctions.net';
 
 
 
@@ -1015,7 +1016,7 @@ export default function App() {
     return (
       <LoginPage 
         onAuthSuccess={(u) => setUser(u)} 
-        backendUrl={backendUrl} 
+        backendUrl={AUTH_API} 
         toast={toast} 
       />
     );
@@ -2181,7 +2182,7 @@ function LoginPage({ onAuthSuccess, backendUrl, toast }) {
     setIsLoading(true);
     setLoadingMsg("Sending verification code...");
     try {
-      const res = await fetch(`${backendUrl}/api/auth/send-otp`, {
+      const res = await fetch(`${backendUrl}/sendOtp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim() })
@@ -2205,7 +2206,7 @@ function LoginPage({ onAuthSuccess, backendUrl, toast }) {
     setIsLoading(true);
     setLoadingMsg("Verifying OTP code...");
     try {
-      const res = await fetch(`${backendUrl}/api/auth/verify-otp`, {
+      const res = await fetch(`${backendUrl}/verifyOtp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), otp: otp.trim() })
@@ -2268,7 +2269,7 @@ function LoginPage({ onAuthSuccess, backendUrl, toast }) {
     setIsLoading(true);
     setLoadingMsg("Resetting password in database...");
     try {
-      const res = await fetch(`${backendUrl}/api/auth/reset-password`, {
+      const res = await fetch(`${backendUrl}/resetPassword`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), otp: otp.trim(), new_password: newPassword.trim() })
