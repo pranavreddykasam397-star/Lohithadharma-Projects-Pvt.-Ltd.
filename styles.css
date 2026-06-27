@@ -27,14 +27,14 @@
 
 /* Dark Theme */
 .dark {
-  --app-bg: #1C1917;
-  --app-panel: #292524;
-  --app-border: #44403C;
-  --app-text: #E7E5E4;
-  --app-muted: #A8A29E;
-  --app-input: #292524;
+  --app-bg: #131313;
+  --app-panel: #201F1F;
+  --app-border: #424846;
+  --app-text: #E5E2E1;
+  --app-muted: #C2C8C4;
+  --app-input: #1C1B1B;
   --app-accent: #C5A880;
-  --app-accent-text: #1C1917;
+  --app-accent-text: #131313;
 }
 
 body {

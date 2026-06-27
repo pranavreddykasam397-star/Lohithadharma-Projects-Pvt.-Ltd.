@@ -1067,9 +1067,9 @@ export default function App() {
             { id: 'voice-capture', icon: '🎙️', label: 'Voice Capture', badge: 'AI' },
             { id: 'ai-outbound', icon: '📞', label: 'AI Outbound', badge: 'Live' },
           ].map(n => (
-            <button key={n.id} onClick={() => setTab(n.id)} className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all cursor-pointer ${tab === n.id ? 'bg-app-accent/15 text-emerald-300' : 'text-[#9B918A] hover:text-stone-200 hover:bg-[#3D3530]/50'}`}>
+            <button key={n.id} onClick={() => setTab(n.id)} className={`relative w-full flex items-center justify-between pl-4 pr-3 py-2.5 rounded-lg text-[13px] font-medium transition-all cursor-pointer ${tab === n.id ? 'bg-[#C5A880]/10 text-[#C5A880] border-l-2 border-l-[#C5A880] font-semibold' : 'text-[#9B918A] hover:text-stone-200 hover:bg-[#3D3530]/50 border-l-2 border-l-transparent'}`}>
               <span className="flex items-center gap-2.5"><span>{n.icon}</span>{n.label}</span>
-              {n.badge && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${tab === n.id ? 'bg-app-accent/25 text-emerald-300' : 'bg-[#3D3530] text-[#9B918A]'}`}>{n.badge}</span>}
+              {n.badge && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${tab === n.id ? 'bg-[#C5A880]/20 text-[#C5A880]' : 'bg-[#3D3530] text-[#9B918A]'}`}>{n.badge}</span>}
             </button>
           ))}
         </nav>
@@ -1211,15 +1211,15 @@ export default function App() {
                       <table className="w-full text-xs">
                         <thead>
                           <tr className="border-b border-app-border bg-app-input/50">
-                            <th className="px-4 py-2.5 text-left font-semibold text-app-muted uppercase text-[10px] tracking-wider">Lead</th>
-                            <th className="px-3 py-2.5 text-left font-semibold text-app-muted uppercase text-[10px] tracking-wider hidden md:table-cell">Location</th>
-                            <th className="px-3 py-2.5 text-left font-semibold text-app-muted uppercase text-[10px] tracking-wider">Budget</th>
-                            <th className="px-3 py-2.5 text-center font-semibold text-app-muted uppercase text-[10px] tracking-wider">Score</th>
-                            <th className="px-3 py-2.5 text-left font-semibold text-app-muted uppercase text-[10px] tracking-wider hidden sm:table-cell">Status</th>
-                            <th className="px-3 py-2.5 text-left font-semibold text-app-muted uppercase text-[10px] tracking-wider hidden lg:table-cell">Created</th>
+                            <th className="px-4 py-2.5 text-left font-semibold text-app-accent uppercase text-xs tracking-wider">Lead</th>
+                            <th className="px-3 py-2.5 text-left font-semibold text-app-accent uppercase text-xs tracking-wider hidden md:table-cell">Location</th>
+                            <th className="px-3 py-2.5 text-left font-semibold text-app-accent uppercase text-xs tracking-wider">Budget</th>
+                            <th className="px-3 py-2.5 text-center font-semibold text-app-accent uppercase text-xs tracking-wider">Score</th>
+                            <th className="px-3 py-2.5 text-left font-semibold text-app-accent uppercase text-xs tracking-wider hidden sm:table-cell">Status</th>
+                            <th className="px-3 py-2.5 text-left font-semibold text-app-accent uppercase text-xs tracking-wider hidden lg:table-cell">Created</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-app-border">
+                        <tbody className="divide-y divide-[#1B4D3E]/20">
                           {filtered.map(l => (
                             <tr key={l.id} onClick={() => setSelId(l.id)} className={`cursor-pointer transition-colors hover:bg-app-accent/5 ${selId === l.id ? 'bg-app-accent/10 border-l-3 border-l-app-accent' : ''}`}>
                               <td className="px-4 py-3">
