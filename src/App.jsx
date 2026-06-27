@@ -2500,8 +2500,8 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
           <div className="inline-flex w-12 h-12 rounded-xl bg-[#C5A880] items-center justify-center text-[#1C1917] text-lg font-bold shadow-lg shadow-[#C5A880]/10 mb-3 select-none">
             LD
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-white">Lohitha Dharma Projects</h1>
-          <p className="text-xs text-[#A8A29E] mt-1">Farmland Managed Agroforestry CRM</p>
+          <h1 className="text-2xl font-extrabold tracking-tight text-white">Lohitha Dharma Projects</h1>
+          <p className="text-xs text-[#A8A29E] font-medium tracking-wide mt-1.5">Farmland Managed Agroforestry CRM</p>
         </div>
 
         {/* Auth Card */}
@@ -2526,9 +2526,9 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
           )}
 
           {activeTab === 'otp' && (
-            <form onSubmit={otpSent ? handleVerifyOTP : handleSendOTP} className="space-y-4">
-              <div>
-                <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">Email Address</label>
+            <form onSubmit={otpSent ? handleVerifyOTP : handleSendOTP} className="space-y-5">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-[#A8A29E] uppercase tracking-wider block">Email Address</label>
                 <input 
                   type="email" 
                   required 
@@ -2536,14 +2536,14 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
                   value={email} 
                   onChange={e => setEmail(e.target.value)} 
                   placeholder="name@company.com" 
-                  className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] transition-colors disabled:opacity-50"
+                  className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] focus:ring-1 focus:ring-[#C5A880] transition-colors disabled:opacity-50"
                 />
               </div>
 
               {otpSent && (
-                <div className="animate-slide-in">
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block">One-Time Password (OTP)</label>
+                <div className="space-y-1.5 animate-slide-in">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-bold text-[#A8A29E] uppercase tracking-wider block">One-Time Password (OTP)</label>
                     <button 
                       type="button" 
                       onClick={clearSessionOtp}
@@ -2559,9 +2559,9 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
                     value={otp} 
                     onChange={e => setOtp(e.target.value.replace(/\D/g, ''))} 
                     placeholder="Enter 6-digit code" 
-                    className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white text-center font-mono tracking-widest focus:outline-none focus:border-[#C5A880] transition-colors"
+                    className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white text-center font-mono tracking-widest focus:outline-none focus:border-[#C5A880] focus:ring-1 focus:ring-[#C5A880] transition-colors"
                   />
-                  <div className="flex justify-between items-center mt-2">
+                  <div className="flex justify-between items-center pt-1">
                     <span className="text-[10px] text-[#A8A29E]">Code is valid for 5 minutes</span>
                     <button 
                       type="button" 
@@ -2574,32 +2574,34 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
                 </div>
               )}
 
-              <button 
-                type="submit" 
-                className="w-full mt-2 py-2.5 bg-[#C5A880] hover:bg-[#DBC09B] text-[#1C1917] font-bold text-xs rounded-lg shadow-lg shadow-[#C5A880]/5 transition-all cursor-pointer"
-              >
-                {otpSent ? 'Verify & Continue' : 'Send Verification Code'}
-              </button>
+              <div className="pt-2">
+                <button 
+                  type="submit" 
+                  className="w-full py-2.5 bg-white hover:bg-stone-100 text-[#121212] font-bold text-xs rounded-lg shadow-lg transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#C5A880] focus:ring-offset-2 focus:ring-offset-[#1C1917]"
+                >
+                  {otpSent ? 'Verify & Continue' : 'Send Verification Code'}
+                </button>
+              </div>
             </form>
           )}
 
           {activeTab === 'password' && (
-            <form onSubmit={handlePasswordLogin} className="space-y-4">
-              <div>
-                <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">Email Address</label>
+            <form onSubmit={handlePasswordLogin} className="space-y-5">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-[#A8A29E] uppercase tracking-wider block">Email Address</label>
                 <input 
                   type="email" 
                   required 
                   value={email} 
                   onChange={e => setEmail(e.target.value)} 
                   placeholder="name@company.com" 
-                  className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] transition-colors"
+                  className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] focus:ring-1 focus:ring-[#C5A880] transition-colors"
                 />
               </div>
 
-              <div>
-                <div className="flex justify-between items-center mb-1">
-                  <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block">Password</label>
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] font-bold text-[#A8A29E] uppercase tracking-wider block">Password</label>
                   <button 
                     type="button"
                     onClick={() => { setActiveTab('forgot'); clearSessionOtp(); }}
@@ -2614,23 +2616,25 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
                   value={password} 
                   onChange={e => setPassword(e.target.value)} 
                   placeholder="••••••••" 
-                  className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] transition-colors"
+                  className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] focus:ring-1 focus:ring-[#C5A880] transition-colors"
                 />
               </div>
 
-              <button 
-                type="submit" 
-                className="w-full mt-2 py-2.5 bg-[#C5A880] hover:bg-[#DBC09B] text-[#1C1917] font-bold text-xs rounded-lg shadow-lg shadow-[#C5A880]/5 transition-all cursor-pointer"
-              >
-                Sign In
-              </button>
+              <div className="pt-2">
+                <button 
+                  type="submit" 
+                  className="w-full py-2.5 bg-white hover:bg-stone-100 text-[#121212] font-bold text-xs rounded-lg shadow-lg transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#C5A880] focus:ring-offset-2 focus:ring-offset-[#1C1917]"
+                >
+                  Sign In
+                </button>
+              </div>
             </form>
           )}
 
           {activeTab === 'set-password' && (
-            <div className="space-y-4 animate-slide-in">
-              <div className="flex items-center justify-between border-b border-[#3E3835] pb-3 mb-2">
-                <h3 className="text-xs font-bold text-white">Create Account</h3>
+            <div className="space-y-5 animate-slide-in">
+              <div className="flex items-center justify-between border-b border-[#3E3835] pb-3">
+                <h3 className="text-sm font-bold text-white tracking-wide">Create Account</h3>
                 <button 
                   type="button"
                   onClick={() => { setActiveTab('otp'); clearSessionOtp(); }}
@@ -2640,9 +2644,9 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
                 </button>
               </div>
 
-              <form onSubmit={handleRegisterAccount} className="space-y-4">
-                <div>
-                  <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">Email Address</label>
+              <form onSubmit={handleRegisterAccount} className="space-y-5">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-[#A8A29E] uppercase tracking-wider block">Email Address</label>
                   <input 
                     type="email" 
                     disabled 
@@ -2651,32 +2655,34 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
                   />
                 </div>
 
-                <div>
-                  <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">Set Account Password</label>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-[#A8A29E] uppercase tracking-wider block">Set Account Password</label>
                   <input 
                     type="password" 
                     required 
                     value={password} 
                     onChange={e => setPassword(e.target.value)} 
                     placeholder="Create a strong password (min 6 chars)" 
-                    className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] transition-colors"
+                    className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] focus:ring-1 focus:ring-[#C5A880] transition-colors"
                   />
                 </div>
 
-                <button 
-                  type="submit" 
-                  className="w-full mt-2 py-2.5 bg-[#C5A880] hover:bg-[#DBC09B] text-[#1C1917] font-bold text-xs rounded-lg shadow-lg shadow-[#C5A880]/5 transition-all cursor-pointer"
-                >
-                  Register & Sign In
-                </button>
+                <div className="pt-2">
+                  <button 
+                    type="submit" 
+                    className="w-full py-2.5 bg-white hover:bg-stone-100 text-[#121212] font-bold text-xs rounded-lg shadow-lg transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#C5A880] focus:ring-offset-2 focus:ring-offset-[#1C1917]"
+                  >
+                    Register & Sign In
+                  </button>
+                </div>
               </form>
             </div>
           )}
 
           {activeTab === 'forgot' && (
-            <div className="space-y-4 animate-slide-in">
-              <div className="flex items-center justify-between border-b border-[#3E3835] pb-3 mb-2">
-                <h3 className="text-xs font-bold text-white">Reset Password</h3>
+            <div className="space-y-5 animate-slide-in">
+              <div className="flex items-center justify-between border-b border-[#3E3835] pb-3">
+                <h3 className="text-sm font-bold text-white tracking-wide">Reset Password</h3>
                 <button 
                   type="button"
                   onClick={() => { setActiveTab('password'); clearSessionOtp(); }}
@@ -2686,9 +2692,9 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
                 </button>
               </div>
 
-              <form onSubmit={otpSent ? handleVerifyResetOTP : handleSendOTP} className="space-y-4">
-                <div>
-                  <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">Registered Email</label>
+              <form onSubmit={otpSent ? handleVerifyResetOTP : handleSendOTP} className="space-y-5">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-[#A8A29E] uppercase tracking-wider block">Registered Email</label>
                   <input 
                     type="email" 
                     required 
@@ -2696,14 +2702,14 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
                     value={email} 
                     onChange={e => setEmail(e.target.value)} 
                     placeholder="name@company.com" 
-                    className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] transition-colors disabled:opacity-50"
+                    className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] focus:ring-1 focus:ring-[#C5A880] transition-colors disabled:opacity-50"
                   />
                 </div>
 
                 {otpSent && (
-                  <div className="animate-slide-in">
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block">One-Time Password (OTP)</label>
+                  <div className="space-y-1.5 animate-slide-in">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-bold text-[#A8A29E] uppercase tracking-wider block">One-Time Password (OTP)</label>
                       <button 
                         type="button" 
                         onClick={clearSessionOtp}
@@ -2719,9 +2725,9 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
                       value={otp} 
                       onChange={e => setOtp(e.target.value.replace(/\D/g, ''))} 
                       placeholder="Enter 6-digit code" 
-                      className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white text-center font-mono tracking-widest focus:outline-none focus:border-[#C5A880] transition-colors"
+                      className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white text-center font-mono tracking-widest focus:outline-none focus:border-[#C5A880] focus:ring-1 focus:ring-[#C5A880] transition-colors"
                     />
-                    <div className="flex justify-between items-center mt-2">
+                    <div className="flex justify-between items-center pt-1">
                       <span className="text-[10px] text-[#A8A29E]">Code is valid for 5 minutes</span>
                       <button 
                         type="button" 
@@ -2734,20 +2740,22 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
                   </div>
                 )}
 
-                <button 
-                  type="submit" 
-                  className="w-full mt-2 py-2.5 bg-[#C5A880] hover:bg-[#DBC09B] text-[#1C1917] font-bold text-xs rounded-lg shadow-lg shadow-[#C5A880]/5 transition-all cursor-pointer"
-                >
-                  {otpSent ? 'Verify Reset Code' : 'Send Reset Code'}
-                </button>
+                <div className="pt-2">
+                  <button 
+                    type="submit" 
+                    className="w-full py-2.5 bg-white hover:bg-stone-100 text-[#121212] font-bold text-xs rounded-lg shadow-lg transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#C5A880] focus:ring-offset-2 focus:ring-offset-[#1C1917]"
+                  >
+                    {otpSent ? 'Verify Reset Code' : 'Send Reset Code'}
+                  </button>
+                </div>
               </form>
             </div>
           )}
 
           {activeTab === 'forgot-reset' && (
-            <div className="space-y-4 animate-slide-in">
-              <div className="flex items-center justify-between border-b border-[#3E3835] pb-3 mb-2">
-                <h3 className="text-xs font-bold text-white">Choose New Password</h3>
+            <div className="space-y-5 animate-slide-in">
+              <div className="flex items-center justify-between border-b border-[#3E3835] pb-3">
+                <h3 className="text-sm font-bold text-white tracking-wide">Choose New Password</h3>
                 <button 
                   type="button"
                   onClick={() => { setActiveTab('otp'); clearSessionOtp(); }}
@@ -2757,9 +2765,9 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
                 </button>
               </div>
 
-              <form onSubmit={handleResetPassword} className="space-y-4">
-                <div>
-                  <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">Email Address</label>
+              <form onSubmit={handleResetPassword} className="space-y-5">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-[#A8A29E] uppercase tracking-wider block">Email Address</label>
                   <input 
                     type="email" 
                     disabled 
@@ -2768,29 +2776,31 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
                   />
                 </div>
 
-                <div>
-                  <label className="text-[10px] font-semibold text-[#A8A29E] uppercase tracking-wider block mb-1">New Password</label>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-[#A8A29E] uppercase tracking-wider block">New Password</label>
                   <input 
                     type="password" 
                     required 
                     value={password} 
                     onChange={e => setPassword(e.target.value)} 
                     placeholder="Enter new strong password (min 6 chars)" 
-                    className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] transition-colors"
+                    className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white focus:outline-none focus:border-[#C5A880] focus:ring-1 focus:ring-[#C5A880] transition-colors"
                   />
                 </div>
 
-                <button 
-                  type="submit" 
-                  className="w-full mt-2 py-2.5 bg-[#C5A880] hover:bg-[#DBC09B] text-[#1C1917] font-bold text-xs rounded-lg shadow-lg shadow-[#C5A880]/5 transition-all cursor-pointer"
-                >
-                  Save & Reset Password
-                </button>
+                <div className="pt-2">
+                  <button 
+                    type="submit" 
+                    className="w-full py-2.5 bg-white hover:bg-stone-100 text-[#121212] font-bold text-xs rounded-lg shadow-lg transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#C5A880] focus:ring-offset-2 focus:ring-offset-[#1C1917]"
+                  >
+                    Save & Reset Password
+                  </button>
+                </div>
               </form>
             </div>
           )}
         </div>
-        
+
         {/* Loader Preview Trigger */}
         <div className="mt-6 text-center">
           <button 
