@@ -2338,19 +2338,22 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
       }
 
       setLoadingMsg("Checking user registry...");
+      // 1. Authenticate with deterministic credentials FIRST under the hood
+      setLoadingMsg("Authenticating session...");
+      const credential = await getClientCredential(email);
+      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), credential);
+
+      // 2. Fetch the user document from Firestore (now authorized because request.auth != null)
       const userRef = doc(db, "users", email.trim().toLowerCase());
       const userDoc = await getDoc(userRef);
 
       if (userDoc.exists()) {
-        // Existing user, sign in directly with client-side credential hash
-        setLoadingMsg("Authenticating session...");
-        const credential = await getClientCredential(email);
-        const userCredential = await signInWithEmailAndPassword(auth, email.trim(), credential);
         clearSessionOtp();
         onAuthSuccess(userCredential.user);
         toast("Welcome back!", "success");
       } else {
         // New user! Transition to set password
+        // They are already logged in to Firebase Auth. They will set a password next.
         setIsLoading(false);
         setPassword('');
         setActiveTab('set-password');
@@ -2434,20 +2437,27 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
     setIsLoading(true);
     setLoadingMsg("Verifying credentials...");
     try {
+      // 1. Authenticate with deterministic credentials FIRST under the hood
+      const credential = await getClientCredential(email);
+      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), credential);
+
+      // 2. Fetch the user document from Firestore (now authorized because request.auth != null)
       const userRef = doc(db, "users", email.trim().toLowerCase());
       const userDoc = await getDoc(userRef);
 
       if (!userDoc.exists()) {
+        await auth.signOut();
         throw new Error("User not registered. Please sign in via OTP first.");
       }
 
+      // 3. Verify custom password hash
       const passHash = await hashPassword(password);
       if (userDoc.data().passwordHash !== passHash) {
+        await auth.signOut();
         throw new Error("Incorrect password. Please try again.");
       }
 
-      const credential = await getClientCredential(email);
-      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), credential);
+      // 4. Success! Proceed to dashboard
       onAuthSuccess(userCredential.user);
       toast("Welcome back!", "success");
     } catch (err) {
@@ -2468,13 +2478,18 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
     setIsLoading(true);
     setLoadingMsg("Resetting password...");
     try {
-      const passHash = await hashPassword(password);
-      await setDoc(doc(db, "users", email.trim().toLowerCase()), {
-        passwordHash: passHash
-      }, { merge: true });
-
+      // 1. Authenticate with deterministic credentials FIRST under the hood
       const credential = await getClientCredential(email);
       const userCredential = await signInWithEmailAndPassword(auth, email.trim(), credential);
+
+      // 2. Hash and save the password to Firestore
+      const passHash = await hashPassword(password);
+      await setDoc(doc(db, "users", email.trim().toLowerCase()), {
+        passwordHash: passHash,
+        email: email.trim().toLowerCase(),
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
       clearSessionOtp();
       onAuthSuccess(userCredential.user);
       toast("Password reset successfully! Session authenticated.", "success");
