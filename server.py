@@ -90,6 +90,42 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
+def get_lead_state(cursor, lead_id):
+    if not lead_id:
+        return None
+    cursor.execute("SELECT * FROM leads WHERE id = ?", (lead_id,))
+    row = cursor.fetchone()
+    if row:
+        lead_dict = dict(row)
+        # Fetch insights too
+        cursor.execute("SELECT insight FROM ai_insights WHERE lead_id = ?", (lead_id,))
+        insights = [r["insight"] for r in cursor.fetchall()]
+        lead_dict["insights"] = insights
+        return lead_dict
+    return None
+
+def write_audit_log(lead_id, action, changed_by, old_state, new_state):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        timestamp = datetime.utcnow().isoformat() + "Z"
+        cursor.execute('''
+            INSERT INTO audit_trail (lead_id, action, changed_by, old_state, new_state, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            lead_id,
+            action,
+            changed_by,
+            json.dumps(old_state) if old_state else None,
+            json.dumps(new_state) if new_state else None,
+            timestamp
+        ))
+        conn.commit()
+        conn.close()
+        print(f"Audit Trail WORM Log: Logged {action} on lead {lead_id} at {timestamp}", flush=True)
+    except Exception as e:
+        print(f"Audit Trail Logging Error: {str(e)}", flush=True)
+
 def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -160,6 +196,19 @@ def init_db():
         conn.commit()
     except sqlite3.OperationalError:
         pass
+
+    # Create audit_trail table (WORM-compliant log)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS audit_trail (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lead_id TEXT,
+            action TEXT NOT NULL,
+            changed_by TEXT NOT NULL,
+            old_state TEXT,
+            new_state TEXT,
+            timestamp TEXT NOT NULL
+        )
+    ''')
     
     # Check if database is empty to insert seeds
     cursor.execute("SELECT COUNT(*) FROM leads")
@@ -1167,6 +1216,8 @@ def create_lead():
             cursor.execute('INSERT INTO ai_insights (lead_id, insight) VALUES (?, ?)', (lead_id, insight))
             
         conn.commit()
+        new_state = get_lead_state(cursor, lead_id)
+        write_audit_log(lead_id, "CREATE", "API / Dashboard User", None, new_state)
     except Exception as e:
         conn.rollback()
         conn.close()
@@ -1209,14 +1260,17 @@ def update_lead_status(id):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute("SELECT id FROM leads WHERE id = ?", (id,))
-    if not cursor.fetchone():
+    old_state = get_lead_state(cursor, id)
+    if not old_state:
         conn.close()
         return jsonify({"error": f"Lead {id} not found"}), 404
         
     cursor.execute("UPDATE leads SET status = ? WHERE id = ?", (status, id))
     conn.commit()
+    new_state = get_lead_state(cursor, id)
     conn.close()
+    
+    write_audit_log(id, "UPDATE", "API / Dashboard User", old_state, new_state)
     
     # Sync to Firestore
     sync_lead_to_firestore(id)
@@ -1443,11 +1497,71 @@ def sync_lead_to_firestore(lead_id):
         print(f"Firestore Sync Failure for Lead {lead_id}: {str(e)}")
         return False
 
+def scrub_pii(text, lead_email=None, lead_phone=None):
+    if not text:
+        return ""
+        
+    scrubbed = text
+    
+    # Mask Credit Cards (13-16 digit numbers with optional dashes/spaces)
+    cc_pattern = r'\b(?:\d[ -]*?){13,16}\b'
+    scrubbed = re.sub(cc_pattern, "[CREDIT_CARD_MASKED]", scrubbed)
+    
+    # Mask Aadhaar numbers (Indian context: 12 digits, often spaced in 4-4-4)
+    aadhaar_pattern = r'\b\d{4}\s\d{4}\s\d{4}\b|\b\d{12}\b'
+    scrubbed = re.sub(aadhaar_pattern, "[AADHAAR_MASKED]", scrubbed)
+    
+    # Mask SSN numbers
+    ssn_pattern = r'\b\d{3}-\d{2}-\d{4}\b'
+    scrubbed = re.sub(ssn_pattern, "[SSN_MASKED]", scrubbed)
+    
+    # Mask Email addresses (except lead's email if provided)
+    email_pattern = r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
+    if lead_email:
+        # Find all emails and mask if they don't match lead_email
+        for email in re.findall(email_pattern, scrubbed):
+            if email.lower() != lead_email.lower():
+                scrubbed = scrubbed.replace(email, "[EMAIL_MASKED]")
+    else:
+        scrubbed = re.sub(email_pattern, "[EMAIL_MASKED]", scrubbed)
+        
+    # Mask Phone numbers (except lead's phone if provided)
+    phone_pattern = r'\b(?:\+?\d{1,3}[- ]?)?\(?\d{3}\)?[- ]?\d{3}[- ]?\d{4}\b'
+    if lead_phone:
+        # Normalize lead phone
+        norm_lead_phone = re.sub(r'[^\d]', '', lead_phone)
+        for ph in re.findall(phone_pattern, scrubbed):
+            norm_ph = re.sub(r'[^\d]', '', ph)
+            if len(norm_ph) >= 7 and norm_ph != norm_lead_phone:
+                scrubbed = scrubbed.replace(ph, "[PHONE_MASKED]")
+    else:
+        scrubbed = re.sub(phone_pattern, "[PHONE_MASKED]", scrubbed)
+        
+    return scrubbed
+
 def save_and_sync_call_data(call_id, lead_id, phone, transcript_text, duration, recording_url, created_at=None):
     if not created_at:
         created_at = datetime.utcnow().isoformat() + "Z"
         
     phone = format_phone_number(phone)
+    
+    # Fetch lead info to avoid scrubbing lead's own contact details from the transcript
+    lead_email = None
+    lead_phone = phone
+    if lead_id:
+        try:
+            conn_temp = get_db_connection()
+            cursor_temp = conn_temp.cursor()
+            cursor_temp.execute("SELECT email, phone FROM leads WHERE id = ?", (lead_id,))
+            row = cursor_temp.fetchone()
+            if row:
+                lead_email = row["email"]
+                lead_phone = row["phone"]
+            conn_temp.close()
+        except:
+            pass
+            
+    transcript_text = scrub_pii(transcript_text, lead_email, lead_phone)
     
     if not lead_id:
         try:
@@ -1489,6 +1603,9 @@ def save_and_sync_call_data(call_id, lead_id, phone, transcript_text, duration, 
         call_id = actual_call_id
         
     conn.commit()
+    
+    # Fetch old state of lead (if it exists)
+    old_state = get_lead_state(cursor, lead_id) if lead_id else None
     
     parsed = parse_multilingual_transcript(transcript_text)
     score, lead_status = qualify_lead_score(parsed["timeline"], parsed["token_paid"], parsed["budget"])
@@ -1532,7 +1649,12 @@ def save_and_sync_call_data(call_id, lead_id, phone, transcript_text, duration, 
         lead_id = new_lead_id
         
     conn.commit()
+    new_state = get_lead_state(cursor, lead_id)
     conn.close()
+    
+    # Log to WORM audit trail
+    action_type = "UPDATE" if old_state else "CREATE"
+    write_audit_log(lead_id, action_type, "Outbound AI Call Process", old_state, new_state)
     
     try:
         sync_lead_to_firestore(lead_id)
