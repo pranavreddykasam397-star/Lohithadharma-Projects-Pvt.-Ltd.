@@ -82,13 +82,118 @@ if sentry_dsn:
     except Exception as se:
         print(f"Failed to initialize Sentry SDK: {str(se)}", flush=True)
 
+# Initialize Celery app instance pointing to Redis broker
+from celery import Celery
+
+def make_celery(app):
+    redis_broker = get_secret("REDIS_URL") or "redis://127.0.0.1:6379/0"
+    celery_instance = Celery(
+        app.import_name,
+        backend=redis_broker,
+        broker=redis_broker
+    )
+    celery_instance.conf.update(
+        task_serializer='json',
+        accept_content=['json'],
+        result_serializer='json',
+        timezone='UTC',
+        enable_utc=True
+    )
+    class ContextTask(celery_instance.Task):
+        def __call__(self, *args, **kwargs):
+            with app.app_context():
+                return self.run(*args, **kwargs)
+    celery_instance.Task = ContextTask
+    return celery_instance
+
+celery = make_celery(app)
+
 # ==========================================
 # Database Initialization & Schema Definition
 # ==========================================
+# Database Compatibility wrappers (SQLite & PostgreSQL transparent translation)
+class CompatCursor:
+    def __init__(self, cursor_obj, is_postgres):
+        self.cursor = cursor_obj
+        self.is_postgres = is_postgres
+
+    def execute(self, query, params=None):
+        if params is None:
+            params = ()
+        if self.is_postgres:
+            # PostgreSQL uses %s instead of ? for positional parameters
+            translated_query = query.replace('?', '%s')
+            
+            # SQLite specific schema/syntax translations for PostgreSQL
+            if "CREATE TABLE" in translated_query:
+                translated_query = translated_query.replace("AUTOINCREMENT", "")
+                translated_query = translated_query.replace("INTEGER PRIMARY KEY", "SERIAL PRIMARY KEY")
+                translated_query = translated_query.replace("BOOLEAN", "BOOLEAN")
+            
+            # Translate SQLite datetime functions to PostgreSQL equivalents
+            translated_query = translated_query.replace("datetime(created_at) > datetime('now', '-2 hours')", "datetime(created_at) > NOW() - INTERVAL '2 hours'")
+            translated_query = translated_query.replace("datetime('now', '-2 hours')", "NOW() - INTERVAL '2 hours'")
+            translated_query = translated_query.replace("DATETIME('now', '-2 hours')", "NOW() - INTERVAL '2 hours'")
+            
+            self.cursor.execute(translated_query, params)
+        else:
+            self.cursor.execute(query, params)
+        return self
+
+    def fetchone(self):
+        row = self.cursor.fetchone()
+        if row is None:
+            return None
+        return dict(row) if self.is_postgres else row
+
+    def fetchall(self):
+        rows = self.cursor.fetchall()
+        if self.is_postgres:
+            return [dict(r) for r in rows]
+        return rows
+
+    @property
+    def rowcount(self):
+        return self.cursor.rowcount
+
+    def close(self):
+        self.cursor.close()
+
+class CompatConnection:
+    def __init__(self, conn_obj, is_postgres):
+        self.conn = conn_obj
+        self.is_postgres = is_postgres
+
+    def cursor(self):
+        if self.is_postgres:
+            import psycopg2.extras
+            return CompatCursor(self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor), True)
+        else:
+            return CompatCursor(self.conn.cursor(), False)
+
+    def commit(self):
+        self.conn.commit()
+
+    def rollback(self):
+        self.conn.rollback()
+
+    def close(self):
+        self.conn.close()
+
 def get_db_connection():
+    database_url = get_secret("DATABASE_URL")
+    if database_url and "postgresql" in database_url:
+        try:
+            import psycopg2
+            import psycopg2.extras
+            conn = psycopg2.connect(database_url)
+            return CompatConnection(conn, True)
+        except Exception as e:
+            print(f"PostgreSQL connection failed: {str(e)}. Falling back to SQLite local database...", flush=True)
+            
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    return conn
+    return CompatConnection(conn, False)
 
 def get_lead_state(cursor, lead_id):
     if not lead_id:
@@ -125,6 +230,18 @@ def write_audit_log(lead_id, action, changed_by, old_state, new_state):
         print(f"Audit Trail WORM Log: Logged {action} on lead {lead_id} at {timestamp}", flush=True)
     except Exception as e:
         print(f"Audit Trail Logging Error: {str(e)}", flush=True)
+
+def run_deduplicate_lead(cursor, lead_id):
+    database_url = get_secret("DATABASE_URL")
+    if database_url and "postgresql" in database_url:
+        try:
+            cursor.execute("SELECT deduplicate_lead(?)", (lead_id,))
+        except Exception as e:
+            print(f"PostgreSQL Stored Procedure Deduplicate Lead Error: {str(e)}", flush=True)
+            raise e
+    else:
+        # SQLite local fallback
+        pass
 
 def init_db():
     conn = get_db_connection()
@@ -1604,57 +1721,66 @@ def save_and_sync_call_data(call_id, lead_id, phone, transcript_text, duration, 
         
     conn.commit()
     
-    # Fetch old state of lead (if it exists)
-    old_state = get_lead_state(cursor, lead_id) if lead_id else None
-    
-    parsed = parse_multilingual_transcript(transcript_text)
-    score, lead_status = qualify_lead_score(parsed["timeline"], parsed["token_paid"], parsed["budget"])
-    insights = generate_insights_list(parsed["name"], parsed["plot_type"], parsed["location"], parsed["timeline"], parsed["token_paid"], parsed["budget"], score)
-    
-    # Associate call record with resolved lead_id in the calls table
-    if lead_id:
-        cursor.execute("UPDATE calls SET lead_id = ? WHERE id = ?", (lead_id, call_id))
+    try:
+        # Fetch old state of lead (if it exists)
+        old_state = get_lead_state(cursor, lead_id) if lead_id else None
         
-    if lead_id:
-        cursor.execute('''
-            UPDATE leads 
-            SET name = ?, 
-                email = COALESCE(?, email), 
-                plot_type = COALESCE(?, plot_type), 
-                location = ?, 
-                budget = ?, 
-                timeline = ?, 
-                token_paid = ?, 
-                ai_score = ?, 
-                status = ?
-            WHERE id = ?
-        ''', (parsed["name"], parsed["email"], parsed["plot_type"], parsed["location"], parsed["budget"], parsed["timeline"], parsed["token_paid"], score, lead_status, lead_id))
-        cursor.execute("DELETE FROM ai_insights WHERE lead_id = ?", (lead_id,))
-        for ins in insights:
-            cursor.execute("INSERT INTO ai_insights (lead_id, insight) VALUES (?, ?)", (lead_id, ins))
-    else:
-        new_lead_id = f"LD-{random.randint(1000, 9999)}"
-        cursor.execute('''
-            INSERT INTO leads (id, name, email, phone, plot_type, location, budget, ai_score, status, created_at, timeline, token_paid, agent_assigned)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            new_lead_id, parsed["name"], parsed["email"] or "investor@lohithadharma.com", phone,
-            parsed["plot_type"], parsed["location"], parsed["budget"],
-            score, lead_status, created_at, parsed["timeline"], parsed["token_paid"], "Sarah Jenkins"
-        ))
-        for ins in insights:
-            cursor.execute("INSERT INTO ai_insights (lead_id, insight) VALUES (?, ?)", (new_lead_id, ins))
+        parsed = parse_multilingual_transcript(transcript_text)
+        score, lead_status = qualify_lead_score(parsed["timeline"], parsed["token_paid"], parsed["budget"])
+        insights = generate_insights_list(parsed["name"], parsed["plot_type"], parsed["location"], parsed["timeline"], parsed["token_paid"], parsed["budget"], score)
+        
+        # Associate call record with resolved lead_id in the calls table
+        if lead_id:
+            cursor.execute("UPDATE calls SET lead_id = ? WHERE id = ?", (lead_id, call_id))
             
-        cursor.execute("UPDATE calls SET lead_id = ? WHERE id = ?", (new_lead_id, call_id))
-        lead_id = new_lead_id
+        if lead_id:
+            cursor.execute('''
+                UPDATE leads 
+                SET name = ?, 
+                    email = COALESCE(?, email), 
+                    plot_type = COALESCE(?, plot_type), 
+                    location = ?, 
+                    budget = ?, 
+                    timeline = ?, 
+                    token_paid = ?, 
+                    ai_score = ?, 
+                    status = ?
+                WHERE id = ?
+            ''', (parsed["name"], parsed["email"], parsed["plot_type"], parsed["location"], parsed["budget"], parsed["timeline"], parsed["token_paid"], score, lead_status, lead_id))
+            cursor.execute("DELETE FROM ai_insights WHERE lead_id = ?", (lead_id,))
+            for ins in insights:
+                cursor.execute("INSERT INTO ai_insights (lead_id, insight) VALUES (?, ?)", (lead_id, ins))
+        else:
+            new_lead_id = f"LD-{random.randint(1000, 9999)}"
+            cursor.execute('''
+                INSERT INTO leads (id, name, email, phone, plot_type, location, budget, ai_score, status, created_at, timeline, token_paid, agent_assigned)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                new_lead_id, parsed["name"], parsed["email"] or "investor@lohithadharma.com", phone,
+                parsed["plot_type"], parsed["location"], parsed["budget"],
+                score, lead_status, created_at, parsed["timeline"], parsed["token_paid"], "Sarah Jenkins"
+            ))
+            for ins in insights:
+                cursor.execute("INSERT INTO ai_insights (lead_id, insight) VALUES (?, ?)", (new_lead_id, ins))
+                
+            cursor.execute("UPDATE calls SET lead_id = ? WHERE id = ?", (new_lead_id, call_id))
+            lead_id = new_lead_id
+            
+        # Run PostgreSQL stored procedure deduplication inside active transaction
+        run_deduplicate_lead(cursor, lead_id)
         
-    conn.commit()
-    new_state = get_lead_state(cursor, lead_id)
-    conn.close()
-    
-    # Log to WORM audit trail
-    action_type = "UPDATE" if old_state else "CREATE"
-    write_audit_log(lead_id, action_type, "Outbound AI Call Process", old_state, new_state)
+        conn.commit()
+        new_state = get_lead_state(cursor, lead_id)
+        conn.close()
+        
+        # Log to WORM audit trail
+        action_type = "UPDATE" if old_state else "CREATE"
+        write_audit_log(lead_id, action_type, "Outbound AI Call Process", old_state, new_state)
+    except Exception as trans_err:
+        conn.rollback()
+        conn.close()
+        print(f"Database Transaction Rolled Back: {str(trans_err)}", flush=True)
+        raise trans_err
     
     try:
         sync_lead_to_firestore(lead_id)
@@ -1751,29 +1877,23 @@ def sync_active_calls_from_bland():
         except Exception as e:
             print(f"Failed to poll call {call_id}: {str(e)}", flush=True)
 
-sync_lock = threading.Lock()
-is_syncing = False
+@celery.task(name="tasks.sync_active_calls", bind=True, max_retries=3)
+def sync_active_calls_task(self):
+    try:
+        sync_active_calls_from_bland()
+    except Exception as exc:
+        print(f"Celery sync_active_calls failed, retrying: {str(exc)}", flush=True)
+        raise self.retry(exc=exc, countdown=60)
 
 def sync_active_calls_from_bland_async():
-    global is_syncing
-    with sync_lock:
-        if is_syncing:
-            return
-        is_syncing = True
-
-    def run_sync():
-        global is_syncing
+    try:
+        sync_active_calls_task.delay()
+    except Exception as e:
+        print(f"Failed to queue Celery task, falling back to synchronous execution: {str(e)}", flush=True)
         try:
             sync_active_calls_from_bland()
-        except Exception as err:
-            print(f"Error in background sync thread: {str(err)}", flush=True)
-        finally:
-            with sync_lock:
-                is_syncing = False
-
-    thread = threading.Thread(target=run_sync)
-    thread.daemon = True
-    thread.start()
+        except Exception as sync_err:
+            print(f"Synchronous fallback execution failed: {str(sync_err)}", flush=True)
 
 @app.route('/api/calls', methods=['GET'])
 def get_calls():
