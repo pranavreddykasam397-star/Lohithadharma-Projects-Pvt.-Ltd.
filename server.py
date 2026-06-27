@@ -65,6 +65,23 @@ def get_secret(secret_name, default_value=None):
     # Fallback to local environment secrets (allows transition and local dev testing)
     return os.environ.get(secret_name) or default_value
 
+# Initialize Sentry SDK for error logging and monitoring
+sentry_dsn = get_secret("SENTRY_DSN") or get_secret("VITE_SENTRY_DSN")
+if sentry_dsn:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.flask import FlaskIntegration
+        sentry_sdk.init(
+            dsn=sentry_dsn,
+            integrations=[FlaskIntegration()],
+            traces_sample_rate=1.0,
+            # Scrub sensitive authentication and cookie headers from events
+            send_default_pii=False
+        )
+        print("Sentry SDK initialized successfully.", flush=True)
+    except Exception as se:
+        print(f"Failed to initialize Sentry SDK: {str(se)}", flush=True)
+
 # ==========================================
 # Database Initialization & Schema Definition
 # ==========================================
