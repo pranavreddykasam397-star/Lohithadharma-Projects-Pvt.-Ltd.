@@ -6,6 +6,12 @@ import re
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import pybreaker
+
+# Initialize Circuit Breakers for third-party services
+bland_breaker = pybreaker.CircuitBreaker(fail_max=5, reset_timeout=60)
+firestore_breaker = pybreaker.CircuitBreaker(fail_max=5, reset_timeout=60)
+gemini_breaker = pybreaker.CircuitBreaker(fail_max=5, reset_timeout=60)
 
 # Load .env file manually if exists
 env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
@@ -269,6 +275,12 @@ def init_db():
         
     conn.close()
 
+@firestore_breaker
+def execute_firestore_delete(req):
+    import urllib.request
+    with urllib.request.urlopen(req) as response:
+        return response.read()
+
 def delete_lead_from_firestore(lead_id):
     project_id = get_secret("FIREBASE_PROJECT_ID") or get_secret("VITE_FIREBASE_PROJECT_ID") or "lohitha-dharma-project"
     api_key = get_secret("FIREBASE_API_KEY") or get_secret("VITE_FIREBASE_API_KEY")
@@ -286,9 +298,12 @@ def delete_lead_from_firestore(lead_id):
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
         )
-        with urllib.request.urlopen(req) as response:
-            print(f"Firestore Deduplication Delete: Deleted duplicate lead {lead_id} in Firestore.")
-            return True
+        execute_firestore_delete(req)
+        print(f"Firestore Deduplication Delete: Deleted duplicate lead {lead_id} in Firestore.")
+        return True
+    except pybreaker.CircuitBreakerError:
+        print(f"Firestore Circuit Breaker Tripped! Skipping deletion for lead {lead_id}.")
+        return False
     except Exception as e:
         print(f"Firestore Deduplication Delete Failure for Lead {lead_id}: {str(e)}")
         return False
@@ -1191,6 +1206,12 @@ def update_lead_status(id):
     
     return jsonify({"success": True, "updatedId": id, "status": status})
 
+@gemini_breaker
+def execute_gemini_api(req):
+    import urllib.request
+    with urllib.request.urlopen(req) as response:
+        return response.read()
+
 # POST /api/leads/process-audio - Multilingual Audio call detail extractor
 @app.route('/api/leads/process-audio', methods=['POST'])
 def process_audio():
@@ -1239,8 +1260,8 @@ def process_audio():
                 headers={'Content-Type': 'application/json'}
             )
             
-            with urllib.request.urlopen(req) as response:
-                res_body = response.read().decode('utf-8')
+            try:
+                res_body = execute_gemini_api(req).decode('utf-8')
                 res_json = json.loads(res_body)
                 content = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
                 
@@ -1252,6 +1273,8 @@ def process_audio():
                     
                 parsed_data = json.loads(content)
                 return jsonify(parsed_data)
+            except pybreaker.CircuitBreakerError:
+                print("Gemini Circuit Breaker Tripped! Falling back to local NLP parser...")
         except Exception as e:
             print(f"Gemini API execution failed: {str(e)}. Falling back to local NLP parser...")
             
@@ -1343,6 +1366,12 @@ def to_firestore_fields(data_dict):
         "fields": {k: to_firestore_value(v) for k, v in data_dict.items()}
     }
 
+@firestore_breaker
+def execute_firestore_patch(req):
+    import urllib.request
+    with urllib.request.urlopen(req) as response:
+        return response.read()
+
 def sync_lead_to_firestore(lead_id):
     project_id = get_secret("FIREBASE_PROJECT_ID") or get_secret("VITE_FIREBASE_PROJECT_ID") or "lohitha-dharma-project"
     api_key = get_secret("FIREBASE_API_KEY") or get_secret("VITE_FIREBASE_API_KEY")
@@ -1387,10 +1416,12 @@ def sync_lead_to_firestore(lead_id):
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
         )
-        with urllib.request.urlopen(req) as response:
-            res_body = response.read().decode('utf-8')
-            print(f"Firestore Sync Success: Lead {lead_id} successfully synchronized in the cloud.")
-            return True
+        execute_firestore_patch(req)
+        print(f"Firestore Sync Success: Lead {lead_id} successfully synchronized in the cloud.")
+        return True
+    except pybreaker.CircuitBreakerError:
+        print(f"Firestore Circuit Breaker Tripped! Skipping cloud sync for lead {lead_id}.")
+        return False
     except Exception as e:
         print(f"Firestore Sync Failure for Lead {lead_id}: {str(e)}")
         return False
@@ -1493,6 +1524,12 @@ def save_and_sync_call_data(call_id, lead_id, phone, transcript_text, duration, 
         
     return lead_id
 
+@bland_breaker
+def execute_bland_api(req):
+    import urllib.request
+    with urllib.request.urlopen(req) as response:
+        return response.read()
+
 def sync_active_calls_from_bland():
     bland_api_key = get_secret("BLAND_API_KEY")
     if not bland_api_key:
@@ -1532,30 +1569,31 @@ def sync_active_calls_from_bland():
             bland_url,
             headers={
                 'authorization': bland_api_key,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/120.0.0.0'
             }
         )
         
         try:
             print(f"Polling status of call {call_id} from Bland AI...", flush=True)
-            with urllib.request.urlopen(req) as response:
-                res_body = response.read().decode('utf-8')
-                res_json = json.loads(res_body)
+            res_body = execute_bland_api(req).decode('utf-8')
+            res_json = json.loads(res_body)
+            
+            bland_status = res_json.get("status")
+            transcript = res_json.get("concatenated_transcript") or res_json.get("transcript")
+            recording_url = res_json.get("recording_url") or res_json.get("recording") or ""
+            duration = extract_call_duration(res_json)
+            
+            print(f"Call {call_id} Bland AI status: {bland_status}, transcript length: {len(transcript) if transcript else 0}", flush=True)
+            
+            if bland_status not in ["in-progress", "ringing"] or transcript:
+                if not transcript:
+                    transcript = f"[Call ended with status: {bland_status}]"
                 
-                bland_status = res_json.get("status")
-                transcript = res_json.get("concatenated_transcript") or res_json.get("transcript")
-                recording_url = res_json.get("recording_url") or res_json.get("recording") or ""
-                duration = extract_call_duration(res_json)
-                
-                print(f"Call {call_id} Bland AI status: {bland_status}, transcript length: {len(transcript) if transcript else 0}", flush=True)
-                
-                if bland_status not in ["in-progress", "ringing"] or transcript:
-                    if not transcript:
-                        transcript = f"[Call ended with status: {bland_status}]"
-                    
-                    save_and_sync_call_data(call_id, lead_id, phone, transcript, duration, recording_url, created_at)
-                    print(f"Successfully synced call {call_id} via API polling.", flush=True)
-                    
+                save_and_sync_call_data(call_id, lead_id, phone, transcript, duration, recording_url, created_at)
+                print(f"Successfully synced call {call_id} via API polling.", flush=True)
+        except pybreaker.CircuitBreakerError:
+            print(f"Bland Circuit Breaker Tripped! Skipping status poll for call {call_id}.", flush=True)
+            break
         except urllib.error.HTTPError as e:
             try:
                 err_body = e.read().decode('utf-8')
@@ -1784,8 +1822,8 @@ Start the call by asking for their name and greeting them. Once you have collect
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                 }
             )
-            with urllib.request.urlopen(req) as response:
-                res_body = response.read().decode('utf-8')
+            try:
+                res_body = execute_bland_api(req).decode('utf-8')
                 res_json = json.loads(res_body)
                 bland_call_id = res_json.get("call_id") or res_json.get("id") or call_id
                 
@@ -1805,7 +1843,10 @@ Start the call by asking for their name and greeting them. Once you have collect
                     "lead_id": lead_id,
                     "lead_name": lead_name,
                     "mode": "real"
-                }), 201
+                })
+            except pybreaker.CircuitBreakerError:
+                print("Bland Circuit Breaker Tripped! Triggering local offline simulation call fallback...", flush=True)
+                error_reason = "Bland AI API gateway offline (Circuit Breaker Tripped)"
         except urllib.error.HTTPError as e:
             err_body = e.read().decode('utf-8')
             print(f"Bland AI trigger HTTP error: {e.code} - {e.reason}. Body: {err_body}", flush=True)

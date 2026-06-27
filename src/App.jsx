@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import ErrorBoundary from './ErrorBoundary';
 import { db, initFirebaseSeeds, auth } from './firebase';
 import { collection, getDocs, getDoc, doc, setDoc, updateDoc, onSnapshot, query, orderBy, deleteDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut, sendPasswordResetEmail } from 'firebase/auth';
@@ -1020,14 +1021,16 @@ export default function App() {
 
   if (!user) {
     return (
-      <LoginPage 
-        onAuthSuccess={(u) => setUser(u)} 
-        backendUrl={backendUrl} 
-        toast={toast} 
-        emailjsServiceId={emailjsServiceId}
-        emailjsTemplateId={emailjsTemplateId}
-        emailjsPublicKey={emailjsPublicKey}
-      />
+      <ErrorBoundary>
+        <LoginPage 
+          onAuthSuccess={(u) => setUser(u)} 
+          backendUrl={backendUrl} 
+          toast={toast} 
+          emailjsServiceId={emailjsServiceId}
+          emailjsTemplateId={emailjsTemplateId}
+          emailjsPublicKey={emailjsPublicKey}
+        />
+      </ErrorBoundary>
     );
   }
 
@@ -1046,7 +1049,8 @@ export default function App() {
       </div>
 
       {/* ══════════ SIDEBAR ══════════ */}
-      <aside className="hidden lg:flex lg:flex-col w-60 bg-[#2C2825] border-r border-[#3D3530] flex-shrink-0">
+      <ErrorBoundary>
+        <aside className="hidden lg:flex lg:flex-col w-60 bg-[#2C2825] border-r border-[#3D3530] flex-shrink-0">
         {/* Brand */}
         <div className="h-16 px-5 flex items-center gap-3 border-b border-[#3D3530]">
           <div className="w-8 h-8 rounded-lg bg-app-accent flex items-center justify-center text-white text-sm font-bold">LD</div>
@@ -1098,6 +1102,7 @@ export default function App() {
           </button>
         </div>
       </aside>
+    </ErrorBoundary>
 
       {/* ══════════ MAIN ══════════ */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
@@ -1142,7 +1147,8 @@ export default function App() {
 
         {/* ── Content ── */}
         <main className="flex-1 overflow-y-auto p-5 bg-app-bg">
-          {tab === 'dashboard' && (
+          <ErrorBoundary>
+            {tab === 'dashboard' && (
             <div className="space-y-5 max-w-[1400px] mx-auto">
 
               {/* Title Row */}
@@ -1784,7 +1790,8 @@ export default function App() {
               </div>
             </div>
           )}
-        </main>
+        </ErrorBoundary>
+      </main>
       </div>
 
       {/* ══════════ MODAL ══════════ */}
