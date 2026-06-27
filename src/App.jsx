@@ -2815,23 +2815,6 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
             </div>
           )}
         </div>
-
-        {/* Loader Preview Trigger */}
-        <div className="mt-6 text-center">
-          <button 
-            type="button"
-            onClick={() => {
-              setIsLoading(true);
-              setLoadingMsg("Previewing Liquid Glass Loader...");
-              setTimeout(() => {
-                setIsLoading(false);
-              }, 4000);
-            }}
-            className="px-4 py-2 border border-[#3E3835] hover:bg-[#3D3530]/50 text-[11px] text-[#A8A29E] hover:text-[#E7E5E4] font-semibold rounded-lg transition-all cursor-pointer inline-flex items-center gap-1.5"
-          >
-            ✨ Preview Loading Screen
-          </button>
-        </div>
       </div>
     </div>
   );
