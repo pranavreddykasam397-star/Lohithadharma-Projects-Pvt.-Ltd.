@@ -2213,9 +2213,8 @@ function LocalAudioPlayer({ rec, downloadRecording, removeStoredRecording }) {
   );
 }
 
-// ─── LoginPage Component ───
 function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjsTemplateId, emailjsPublicKey }) {
-  const [activeTab, setActiveTab] = useState('otp'); // 'otp', 'password', 'forgot', 'set-password', 'forgot-reset'
+  const [activeTab, setActiveTab] = useState('otp'); // 'otp', 'password', 'forgot', 'set-password', 'forgot-reset', 'totp-setup', 'totp-verify'
   const [email, setEmail] = useState(() => sessionStorage.getItem('login_email') || '');
   const [otp, setOtp] = useState('');
   const [password, setPassword] = useState('');
@@ -2228,6 +2227,11 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
     const val = sessionStorage.getItem('login_otp_created_at');
     return val ? parseInt(val, 10) : null;
   });
+
+  const [totpSecret, setTotpSecret] = useState('');
+  const [totpUri, setTotpUri] = useState('');
+  const [totpToken, setTotpToken] = useState('');
+  const [pendingUserCredential, setPendingUserCredential] = useState(null);
 
   const clearSessionOtp = () => {
     sessionStorage.removeItem('login_stored_otp');
@@ -2348,12 +2352,44 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
       const userDoc = await getDoc(userRef);
 
       if (userDoc.exists()) {
-        clearSessionOtp();
-        onAuthSuccess(userCredential.user);
-        toast("Welcome back!", "success");
+        // Check MFA status
+        setLoadingMsg("Checking MFA status...");
+        const mfaCheck = await fetch(`${backendUrl}/api/auth/totp-verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.trim() })
+        });
+        const mfaData = await mfaCheck.json();
+        
+        if (mfaData.is_registered) {
+          setPendingUserCredential(userCredential.user);
+          setTotpToken('');
+          setActiveTab('totp-verify');
+          setIsLoading(false);
+          toast("Please enter the MFA verification code from your authenticator app.", "info");
+        } else {
+          // Force Setup
+          setLoadingMsg("Initiating MFA Setup...");
+          const setupRes = await fetch(`${backendUrl}/api/auth/totp-setup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email.trim() })
+          });
+          if (!setupRes.ok) {
+            const errData = await setupRes.json();
+            throw new Error(errData.error || "Failed to setup MFA.");
+          }
+          const setupData = await setupRes.json();
+          setTotpSecret(setupData.secret);
+          setTotpUri(setupData.uri);
+          setPendingUserCredential(userCredential.user);
+          setTotpToken('');
+          setActiveTab('totp-setup');
+          setIsLoading(false);
+          toast("MFA is required. Please scan the QR code to set up.", "warning");
+        }
       } else {
         // New user! Transition to set password
-        // They are already logged in to Firebase Auth. They will set a password next.
         setIsLoading(false);
         setPassword('');
         setActiveTab('set-password');
@@ -2420,9 +2456,24 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
         createdAt: new Date().toISOString()
       });
 
-      clearSessionOtp();
-      onAuthSuccess(userCredential.user);
-      toast("Account registered and signed in successfully!", "success");
+      // Initiate MFA Setup
+      setLoadingMsg("Initiating MFA Setup...");
+      const setupRes = await fetch(`${backendUrl}/api/auth/totp-setup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() })
+      });
+      if (!setupRes.ok) {
+        const errData = await setupRes.json();
+        throw new Error(errData.error || "Failed to initiate MFA.");
+      }
+      const setupData = await setupRes.json();
+      setTotpSecret(setupData.secret);
+      setTotpUri(setupData.uri);
+      setPendingUserCredential(userCredential.user);
+      setTotpToken('');
+      setActiveTab('totp-setup');
+      toast("Please scan the QR code to complete MFA setup.", "info");
     } catch (err) {
       console.error(err);
       toast(err.message || "Registration failed.", "error");
@@ -2457,9 +2508,40 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
         throw new Error("Incorrect password. Please try again.");
       }
 
-      // 4. Success! Proceed to dashboard
-      onAuthSuccess(userCredential.user);
-      toast("Welcome back!", "success");
+      // 4. Check MFA status on backend
+      setLoadingMsg("Checking MFA status...");
+      const mfaCheck = await fetch(`${backendUrl}/api/auth/totp-verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() })
+      });
+      const mfaData = await mfaCheck.json();
+      
+      if (mfaData.is_registered) {
+        setPendingUserCredential(userCredential.user);
+        setTotpToken('');
+        setActiveTab('totp-verify');
+        toast("Please enter the MFA verification code from your authenticator app.", "info");
+      } else {
+        // Force Setup
+        setLoadingMsg("Initiating MFA Setup...");
+        const setupRes = await fetch(`${backendUrl}/api/auth/totp-setup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.trim() })
+        });
+        if (!setupRes.ok) {
+          const errData = await setupRes.json();
+          throw new Error(errData.error || "Failed to setup MFA.");
+        }
+        const setupData = await setupRes.json();
+        setTotpSecret(setupData.secret);
+        setTotpUri(setupData.uri);
+        setPendingUserCredential(userCredential.user);
+        setTotpToken('');
+        setActiveTab('totp-setup');
+        toast("MFA setup is required to secure your account. Please scan the QR code.", "warning");
+      }
     } catch (err) {
       console.error(err);
       toast(err.message || "Login failed.", "error");
@@ -2490,12 +2572,106 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
         updatedAt: new Date().toISOString()
       }, { merge: true });
 
-      clearSessionOtp();
-      onAuthSuccess(userCredential.user);
-      toast("Password reset successfully! Session authenticated.", "success");
+      // 3. Check MFA status
+      setLoadingMsg("Checking MFA status...");
+      const mfaCheck = await fetch(`${backendUrl}/api/auth/totp-verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() })
+      });
+      const mfaData = await mfaCheck.json();
+      
+      if (mfaData.is_registered) {
+        setPendingUserCredential(userCredential.user);
+        setTotpToken('');
+        setActiveTab('totp-verify');
+        toast("Password reset successfully! Please verify MFA to proceed.", "success");
+      } else {
+        // Force Setup
+        setLoadingMsg("Initiating MFA Setup...");
+        const setupRes = await fetch(`${backendUrl}/api/auth/totp-setup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.trim() })
+        });
+        if (!setupRes.ok) {
+          const errData = await setupRes.json();
+          throw new Error(errData.error || "Failed to setup MFA.");
+        }
+        const setupData = await setupRes.json();
+        setTotpSecret(setupData.secret);
+        setTotpUri(setupData.uri);
+        setPendingUserCredential(userCredential.user);
+        setTotpToken('');
+        setActiveTab('totp-setup');
+        toast("Password reset successfully! Please set up MFA to complete registration.", "success");
+      }
     } catch (err) {
       console.error(err);
       toast(err.message || "Reset failed.", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSaveTotp = async (e) => {
+    e.preventDefault();
+    if (!totpToken || !totpSecret || !email) return;
+    setIsLoading(true);
+    setLoadingMsg("Verifying MFA configuration...");
+    try {
+      const res = await fetch(`${backendUrl}/api/auth/totp-save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim(),
+          secret: totpSecret,
+          token: totpToken
+        })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "MFA validation failed.");
+      }
+      
+      clearSessionOtp();
+      onAuthSuccess(pendingUserCredential);
+      toast("MFA configured and signed in successfully!", "success");
+    } catch (err) {
+      console.error(err);
+      toast(err.message || "Failed to verify MFA setup.", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVerifyTotp = async (e) => {
+    e.preventDefault();
+    if (!totpToken || !email) return;
+    setIsLoading(true);
+    setLoadingMsg("Verifying MFA code...");
+    try {
+      const res = await fetch(`${backendUrl}/api/auth/totp-verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim(),
+          token: totpToken
+        })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "MFA check failed.");
+      }
+      
+      clearSessionOtp();
+      onAuthSuccess(pendingUserCredential);
+      toast("Welcome back! Multi-Factor session authorized.", "success");
+    } catch (err) {
+      console.error(err);
+      toast(err.message || "Failed to verify MFA code.", "error");
     } finally {
       setIsLoading(false);
     }
@@ -2809,6 +2985,102 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
                     className="w-full py-2.5 bg-white hover:bg-stone-100 text-[#121212] font-bold text-xs rounded-lg shadow-lg transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#C5A880] focus:ring-offset-2 focus:ring-offset-[#1C1917]"
                   >
                     Save & Reset Password
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {activeTab === 'totp-setup' && (
+            <div className="space-y-5 animate-slide-in">
+              <div className="flex items-center justify-between border-b border-[#3E3835] pb-3">
+                <h3 className="text-sm font-bold text-white tracking-wide">Set Up Authenticator (MFA)</h3>
+                <button 
+                  type="button"
+                  onClick={() => { setActiveTab('otp'); clearSessionOtp(); }}
+                  className="text-[10px] text-[#A8A29E] hover:text-white cursor-pointer"
+                >
+                  ← Back
+                </button>
+              </div>
+
+              <div className="text-center text-xs text-[#A8A29E] leading-relaxed mb-2">
+                Scan this QR code with Google Authenticator or any MFA app, then enter the 6-digit verification code below.
+              </div>
+
+              {totpUri && (
+                <div className="flex justify-center bg-white p-3 rounded-xl mb-4 w-44 h-44 mx-auto shadow-lg select-none">
+                  <img 
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(totpUri)}`}
+                    alt="MFA QR Code"
+                    className="w-full h-full"
+                  />
+                </div>
+              )}
+
+              <form onSubmit={handleSaveTotp} className="space-y-5">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-[#A8A29E] uppercase tracking-wider block">Authenticator Code</label>
+                  <input 
+                    type="text" 
+                    required 
+                    maxLength={6}
+                    value={totpToken} 
+                    onChange={e => setTotpToken(e.target.value.replace(/\D/g, ''))} 
+                    placeholder="000 000" 
+                    className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white text-center font-mono tracking-widest focus:outline-none focus:border-[#C5A880] focus:ring-1 focus:ring-[#C5A880] transition-colors"
+                  />
+                </div>
+
+                <div className="pt-2">
+                  <button 
+                    type="submit" 
+                    className="w-full py-2.5 bg-white hover:bg-stone-100 text-[#121212] font-bold text-xs rounded-lg shadow-lg transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#C5A880] focus:ring-offset-2 focus:ring-offset-[#1C1917]"
+                  >
+                    Verify & Complete Setup
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {activeTab === 'totp-verify' && (
+            <div className="space-y-5 animate-slide-in">
+              <div className="flex items-center justify-between border-b border-[#3E3835] pb-3">
+                <h3 className="text-sm font-bold text-white tracking-wide">Multi-Factor Check</h3>
+                <button 
+                  type="button"
+                  onClick={() => { setActiveTab('otp'); clearSessionOtp(); }}
+                  className="text-[10px] text-[#A8A29E] hover:text-white cursor-pointer"
+                >
+                  ← Back to Login
+                </button>
+              </div>
+
+              <div className="text-center text-xs text-[#A8A29E] leading-relaxed mb-2">
+                Enter the 6-digit security code generated by your authenticator app to authorize your session.
+              </div>
+
+              <form onSubmit={handleVerifyTotp} className="space-y-5">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-[#A8A29E] uppercase tracking-wider block">Security Verification Code</label>
+                  <input 
+                    type="text" 
+                    required 
+                    maxLength={6}
+                    value={totpToken} 
+                    onChange={e => setTotpToken(e.target.value.replace(/\D/g, ''))} 
+                    placeholder="000 000" 
+                    className="w-full px-3 py-2.5 bg-[#121212] border border-[#3E3835] rounded-lg text-xs text-white text-center font-mono tracking-widest focus:outline-none focus:border-[#C5A880] focus:ring-1 focus:ring-[#C5A880] transition-colors"
+                  />
+                </div>
+
+                <div className="pt-2">
+                  <button 
+                    type="submit" 
+                    className="w-full py-2.5 bg-white hover:bg-stone-100 text-[#121212] font-bold text-xs rounded-lg shadow-lg transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#C5A880] focus:ring-offset-2 focus:ring-offset-[#1C1917]"
+                  >
+                    Authorize Session
                   </button>
                 </div>
               </form>

@@ -25,6 +25,41 @@ CORS(app)
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'leads.db')
 
 # ==========================================
+# Secure Secret Manager Integration
+# ==========================================
+def get_secret(secret_name, default_value=None):
+    # Try AWS Secrets Manager (fetches via IAM Role at runtime)
+    aws_secret_id = os.environ.get("AWS_SECRETS_MANAGER_ID")
+    if aws_secret_id:
+        try:
+            import boto3
+            client = boto3.client('secretsmanager')
+            response = client.get_secret_value(SecretId=aws_secret_id)
+            secrets = json.loads(response['SecretString'])
+            val = secrets.get(secret_name)
+            if val is not None:
+                return val
+        except Exception as e:
+            print(f"AWS Secrets Manager fetch failed for {secret_name}: {str(e)}", flush=True)
+
+    # Try HashiCorp Vault (fetches at runtime via IAM or Token auth)
+    vault_addr = os.environ.get("VAULT_ADDR")
+    vault_token = os.environ.get("VAULT_TOKEN")
+    if vault_addr and vault_token:
+        try:
+            import hvac
+            client = hvac.Client(url=vault_addr, token=vault_token)
+            secret_response = client.secrets.kv.v2.read_secret_version(path='lohitha-crm')
+            val = secret_response['data']['data'].get(secret_name)
+            if val is not None:
+                return val
+        except Exception as e:
+            print(f"HashiCorp Vault fetch failed for {secret_name}: {str(e)}", flush=True)
+
+    # Fallback to local environment secrets (allows transition and local dev testing)
+    return os.environ.get(secret_name) or default_value
+
+# ==========================================
 # Database Initialization & Schema Definition
 # ==========================================
 def get_db_connection():
@@ -93,9 +128,15 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_credentials (
             email TEXT PRIMARY KEY,
-            password TEXT NOT NULL
+            password TEXT NOT NULL,
+            totp_secret TEXT
         )
     ''')
+    try:
+        cursor.execute("ALTER TABLE user_credentials ADD COLUMN totp_secret TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
     
     # Check if database is empty to insert seeds
     cursor.execute("SELECT COUNT(*) FROM leads")
@@ -229,8 +270,8 @@ def init_db():
     conn.close()
 
 def delete_lead_from_firestore(lead_id):
-    project_id = os.environ.get("FIREBASE_PROJECT_ID") or os.environ.get("VITE_FIREBASE_PROJECT_ID") or "lohitha-dharma-project"
-    api_key = os.environ.get("FIREBASE_API_KEY") or os.environ.get("VITE_FIREBASE_API_KEY")
+    project_id = get_secret("FIREBASE_PROJECT_ID") or get_secret("VITE_FIREBASE_PROJECT_ID") or "lohitha-dharma-project"
+    api_key = get_secret("FIREBASE_API_KEY") or get_secret("VITE_FIREBASE_API_KEY")
     if not api_key:
         print(f"Firestore Warning: api_key is missing. Cannot delete lead {lead_id}.")
         return False
@@ -684,15 +725,15 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 def get_secure_password(email):
-    secret_key = os.environ.get("AUTH_SECRET_KEY", "lohitha-dharma-auth-secret-key-2026")
+    secret_key = get_secret("AUTH_SECRET_KEY", "lohitha-dharma-auth-secret-key-2026")
     return hmac.new(secret_key.encode('utf-8'), email.lower().encode('utf-8'), hashlib.sha256).hexdigest()
 
 def send_otp_email(to_email, otp):
-    smtp_host = os.environ.get("SMTP_HOST")
-    smtp_port = os.environ.get("SMTP_PORT")
-    smtp_user = os.environ.get("SMTP_USER")
-    smtp_pass = os.environ.get("SMTP_PASSWORD")
-    sender_email = os.environ.get("SMTP_SENDER", smtp_user)
+    smtp_host = get_secret("SMTP_HOST")
+    smtp_port = get_secret("SMTP_PORT")
+    smtp_user = get_secret("SMTP_USER")
+    smtp_pass = get_secret("SMTP_PASSWORD")
+    sender_email = get_secret("SMTP_SENDER", smtp_user)
     
     subject = "Lohitha Dharma CRM - Verification Code"
     body = f"""
@@ -894,6 +935,112 @@ def reset_password():
         "credential": current_password
     }), 200
 
+# POST /api/auth/totp-setup - Generate new TOTP secret
+@app.route('/api/auth/totp-setup', methods=['POST'])
+def totp_setup():
+    import pyotp
+    data = request.json or {}
+    email = data.get("email")
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+    email = email.strip().lower()
+    
+    # Generate TOTP secret
+    secret = pyotp.random_base32()
+    totp = pyotp.TOTP(secret)
+    # Provisioning URI
+    uri = totp.provisioning_uri(name=email, issuer_name="Lohitha Dharma Projects")
+    
+    return jsonify({
+        "secret": secret,
+        "uri": uri
+    }), 200
+
+# POST /api/auth/totp-save - Verify initial token and save secret
+@app.route('/api/auth/totp-save', methods=['POST'])
+def totp_save():
+    import pyotp
+    data = request.json or {}
+    email = data.get("email")
+    secret = data.get("secret")
+    token = data.get("token")
+    
+    if not email or not secret or not token:
+        return jsonify({"error": "Email, secret and token code are required"}), 400
+        
+    email = email.strip().lower()
+    secret = secret.strip()
+    token = token.strip()
+    
+    totp = pyotp.TOTP(secret)
+    if not totp.verify(token):
+        return jsonify({"error": "Invalid verification code. Please check your app and try again."}), 400
+        
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Check if user exists in credentials
+        cursor.execute("SELECT email FROM user_credentials WHERE email = ?", (email,))
+        if not cursor.fetchone():
+            default_pass = get_secure_password(email)
+            cursor.execute("INSERT INTO user_credentials (email, password, totp_secret) VALUES (?, ?, ?)", (email, default_pass, secret))
+        else:
+            cursor.execute("UPDATE user_credentials SET totp_secret = ? WHERE email = ?", (secret, email))
+        conn.commit()
+    except Exception as e:
+        conn.close()
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
+    conn.close()
+    
+    return jsonify({
+        "success": True,
+        "message": "TOTP MFA registered successfully"
+    }), 200
+
+# POST /api/auth/totp-verify - Verify TOTP token during login
+@app.route('/api/auth/totp-verify', methods=['POST'])
+def totp_verify():
+    import pyotp
+    data = request.json or {}
+    email = data.get("email")
+    token = data.get("token")
+    
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+        
+    email = email.strip().lower()
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT totp_secret FROM user_credentials WHERE email = ?", (email,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    has_secret = bool(row and row["totp_secret"])
+    
+    # If checking setup status only
+    if not token:
+        return jsonify({
+            "is_registered": has_secret
+        }), 200
+        
+    if not has_secret:
+        return jsonify({
+            "is_registered": False,
+            "error": "MFA is not set up for this account. Please verify via Email OTP to set up MFA."
+        }), 400
+        
+    token = token.strip()
+    secret = row["totp_secret"]
+    totp = pyotp.TOTP(secret)
+    if not totp.verify(token):
+        return jsonify({"error": "Invalid MFA code. Please check your app and try again."}), 400
+        
+    return jsonify({
+        "success": True,
+        "message": "MFA verified successfully"
+    }), 200
+
 # ==========================================
 # REST API Endpoints
 # ==========================================
@@ -1054,7 +1201,7 @@ def process_audio():
     transcript = data["transcript"]
     
     # Check if user has specified Gemini API Key in the environment for live AI extraction
-    gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API")
+    gemini_key = get_secret("GEMINI_API_KEY") or get_secret("GEMINI_API")
     
     if gemini_key:
         print("Processing transcript using Gemini 2.5 Flash API...")
@@ -1197,8 +1344,8 @@ def to_firestore_fields(data_dict):
     }
 
 def sync_lead_to_firestore(lead_id):
-    project_id = os.environ.get("FIREBASE_PROJECT_ID") or os.environ.get("VITE_FIREBASE_PROJECT_ID") or "lohitha-dharma-project"
-    api_key = os.environ.get("FIREBASE_API_KEY") or os.environ.get("VITE_FIREBASE_API_KEY")
+    project_id = get_secret("FIREBASE_PROJECT_ID") or get_secret("VITE_FIREBASE_PROJECT_ID") or "lohitha-dharma-project"
+    api_key = get_secret("FIREBASE_API_KEY") or get_secret("VITE_FIREBASE_API_KEY")
     if not api_key:
         print(f"Firestore Sync Warning: api_key is missing. Cannot sync lead {lead_id}.")
         return False
@@ -1347,7 +1494,7 @@ def save_and_sync_call_data(call_id, lead_id, phone, transcript_text, duration, 
     return lead_id
 
 def sync_active_calls_from_bland():
-    bland_api_key = os.environ.get("BLAND_API_KEY")
+    bland_api_key = get_secret("BLAND_API_KEY")
     if not bland_api_key:
         return
         
@@ -1558,13 +1705,13 @@ def trigger_call():
     if phone:
         phone = format_phone_number(phone)
     lead_id = data.get("lead_id")
-    bland_api_key = os.environ.get("BLAND_API_KEY") or data.get("bland_api_key")
+    bland_api_key = get_secret("BLAND_API_KEY") or data.get("bland_api_key")
     if bland_api_key and (bland_api_key.startswith("http://") or bland_api_key.startswith("https://")):
-        bland_api_key = os.environ.get("BLAND_API_KEY")
-    webhook_base = os.environ.get("WEBHOOK_BASE_URL") or data.get("webhook_base_url")
+        bland_api_key = get_secret("BLAND_API_KEY")
+    webhook_base = get_secret("WEBHOOK_BASE_URL") or data.get("webhook_base_url")
     
     print(f"DEBUG: Trigger payload={data}", flush=True)
-    print(f"DEBUG: BLAND_API_KEY in env={bool(os.environ.get('BLAND_API_KEY'))}", flush=True)
+    print(f"DEBUG: BLAND_API_KEY in env={bool(get_secret('BLAND_API_KEY'))}", flush=True)
     print(f"DEBUG: bland_api_key resolved={bool(bland_api_key)}", flush=True)
     
     if not phone:
