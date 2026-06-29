@@ -1965,7 +1965,7 @@ export default function App() {
                   className="w-full bg-app-input border border-app-border rounded-lg p-2.5 text-xs text-app-text focus:outline-none focus:border-app-accent" 
                 />
                 <p className="text-[10px] text-app-muted mt-1 leading-relaxed">
-                  Template ID. Must contain template variables `{{to_email}}` and `{{otp_code}}`.
+                  Template ID. Must contain template variables `{"{{to_email}}"}` and `{"{{otp_code}}"}`.
                 </p>
               </div>
 
