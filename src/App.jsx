@@ -1879,12 +1879,15 @@ export default function App() {
       {/* ══════════ SETTINGS MODAL ══════════ */}
       {settingsModal && (
         <div className="fixed inset-0 bg-slate-900/50 dark:bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setSettingsModal(false)}>
-          <div className="bg-app-panel modal-card border border-app-border rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-slide-in" onClick={e => e.stopPropagation()}>
-            <div className="px-6 py-4 border-b border-app-border flex items-center justify-between">
+          <div className="bg-app-panel modal-card border border-app-border rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-slide-in flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+            {/* Header - Fixed */}
+            <div className="px-6 py-4 border-b border-app-border flex items-center justify-between flex-shrink-0">
               <h2 className="text-sm font-bold text-app-text">Lohith AI Settings</h2>
               <button onClick={() => setSettingsModal(false)} className="text-app-muted hover:text-app-text text-lg cursor-pointer">×</button>
             </div>
-            <div className="p-6 space-y-4">
+            
+            {/* Body - Scrollable */}
+            <div className="p-6 overflow-y-auto space-y-4 flex-1 scrollbar-thin">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-app-text">Gemini API Key</label>
                 <input 
@@ -1982,7 +1985,10 @@ export default function App() {
                   Your EmailJS account Public Key.
                 </p>
               </div>
+            </div>
 
+            {/* Footer - Fixed */}
+            <div className="px-6 py-4 border-t border-app-border bg-app-panel flex-shrink-0">
               <button onClick={() => { setSettingsModal(false); toast("Settings saved!", "success"); }} className="w-full btn-primary py-2.5 text-xs font-bold cursor-pointer">
                 Save & Close
               </button>
