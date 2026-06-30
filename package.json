@@ -16,6 +16,7 @@
   "dependencies": {
     "@sentry/react": "^10.62.0",
     "firebase": "^12.15.0",
+    "jsdom": "^29.1.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   }

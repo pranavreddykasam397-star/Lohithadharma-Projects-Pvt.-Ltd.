@@ -61,12 +61,15 @@ exports.sendOtp = functions.https.onRequest((req, res) => {
       return res.status(405).json({ error: 'Method Not Allowed' });
     }
     const { email } = req.body || {};
+    let { otp } = req.body || {};
     if (!email) {
       return res.status(400).json({ error: 'Email is required' });
     }
 
     const emailClean = email.trim().toLowerCase();
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    if (!otp) {
+      otp = Math.floor(100000 + Math.random() * 900000).toString();
+    }
     const createdAt = admin.firestore.Timestamp.now();
 
     try {

@@ -1022,6 +1022,16 @@ export default function App() {
   if (!user) {
     return (
       <ErrorBoundary>
+        {/* ── Toasts ── */}
+        <div className="fixed top-4 right-4 z-[60] flex flex-col gap-2 pointer-events-none">
+          {toasts.map(t => (
+            <div key={t.id} className={`pointer-events-auto px-4 py-2.5 rounded-lg shadow-lg border text-sm font-medium animate-slide-in ${
+              t.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/50 dark:border-emerald-700 dark:text-emerald-300' :
+              t.type === 'error' ? 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-900/50 dark:border-rose-700 dark:text-rose-300' :
+              'bg-stone-100 border-stone-300 text-stone-800 dark:bg-stone-800/50 dark:border-stone-600 dark:text-stone-300'
+            }`}>{t.msg}</div>
+          ))}
+        </div>
         <LoginPage 
           onAuthSuccess={(u) => setUser(u)} 
           backendUrl={backendUrl} 
@@ -2296,36 +2306,73 @@ function LoginPage({ onAuthSuccess, backendUrl, toast, emailjsServiceId, emailjs
       sessionStorage.setItem('login_email', email.trim());
       sessionStorage.setItem('login_otp_sent', 'true');
 
+      // Log to browser devtools console ALWAYS
+      console.log('%c[OTP SIMULATION] Code for ' + email + ' is: ' + generatedOtp, 'background: #222; color: #bada55; font-size: 1.2em; padding: 4px;');
+
+      let sentSuccessfully = false;
+
       if (emailjsServiceId && emailjsTemplateId && emailjsPublicKey) {
         setLoadingMsg("Sending OTP via EmailJS...");
-        const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            service_id: emailjsServiceId,
-            template_id: emailjsTemplateId,
-            user_id: emailjsPublicKey,
-            template_params: {
-              to_email: email.trim(),
-              email: email.trim(),
-              otp_code: generatedOtp,
-              passcode: generatedOtp
-            }
-          })
-        });
+        try {
+          const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              service_id: emailjsServiceId,
+              template_id: emailjsTemplateId,
+              user_id: emailjsPublicKey,
+              template_params: {
+                to_email: email.trim(),
+                email: email.trim(),
+                otp_code: generatedOtp,
+                passcode: generatedOtp
+              }
+            })
+          });
 
-        if (!response.ok) {
-          const errMsg = await response.text();
-          throw new Error("EmailJS Error: " + errMsg);
+          if (!response.ok) {
+            const errMsg = await response.text();
+            throw new Error("EmailJS Error: " + errMsg);
+          }
+          
+          toast("Verification code sent to " + email, "success");
+          sentSuccessfully = true;
+        } catch (mailErr) {
+          console.error("EmailJS failed:", mailErr);
+          toast("EmailJS delivery failed. Trying backend SMTP...", "warning");
         }
-        
-        toast("Verification code sent to " + email, "success");
-      } else {
-        // Fallback simulation
-        console.log('%c[OTP SIMULATION] Code for ' + email + ' is: ' + generatedOtp, 'background: #222; color: #bada55; font-size: 1.2em; padding: 4px;');
-        toast("Simulation: OTP code printed to browser devtools console.", "info");
+      }
+
+      if (!sentSuccessfully) {
+        setLoadingMsg("Sending OTP via Backend SMTP...");
+        try {
+          const response = await fetch(`${backendUrl}/api/auth/send-otp`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              email: email.trim(),
+              otp: generatedOtp
+            })
+          });
+
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || "Backend server error");
+          }
+
+          toast("Verification code sent to " + email + " via backend SMTP", "success");
+          sentSuccessfully = true;
+        } catch (backErr) {
+          console.error("Backend OTP send failed:", backErr);
+        }
+      }
+
+      if (!sentSuccessfully) {
+        toast("Simulation Mode: Verification code is " + generatedOtp, "info");
       }
       
       setOtpSent(true);

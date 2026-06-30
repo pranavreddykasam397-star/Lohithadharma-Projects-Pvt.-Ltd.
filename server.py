@@ -986,8 +986,11 @@ def send_otp():
         
     email = email.strip().lower()
     
-    # Generate 6-digit OTP
-    otp = f"{random.randint(100000, 999999)}"
+    # Use client-provided OTP if available, otherwise generate one
+    otp = data.get("otp")
+    if not otp:
+        otp = f"{random.randint(100000, 999999)}"
+        
     created_at = datetime.utcnow().isoformat() + "Z"
     
     conn = get_db_connection()
