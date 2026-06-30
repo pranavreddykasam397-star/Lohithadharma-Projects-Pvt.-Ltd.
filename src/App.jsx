@@ -115,6 +115,9 @@ export default function App() {
   const [emailjsTemplateId, setEmailjsTemplateId] = useState(() => localStorage.getItem('emailjs_template_id') || 'template_kwtmhdg');
   const [emailjsPublicKey, setEmailjsPublicKey] = useState(() => localStorage.getItem('emailjs_public_key') || 'ENy0TGer0jZWnBr48');
   const sseRef = useRef(null);
+  const simTimeoutRef = useRef(null);
+  const simIntervalRef = useRef(null);
+  const pollIntervalRef = useRef(null);
   const [isProcessingRemote, setIsProcessingRemote] = useState(false);
   const [remoteLoadingMsg, setRemoteLoadingMsg] = useState("");
 
@@ -128,13 +131,23 @@ export default function App() {
   const fetchCallsHistory = async () => {
     setLoadingCalls(true);
     try {
-      const res = await fetch(`${backendUrl}/api/calls`);
-      if (res.ok) {
-        const data = await res.json();
-        setCallsHistory(data);
-      }
+      const querySnapshot = await getDocs(query(collection(db, 'calls'), orderBy('created_at', 'desc')));
+      const list = [];
+      querySnapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() });
+      });
+      setCallsHistory(list);
     } catch (err) {
-      console.error("Error fetching call history:", err);
+      console.error("Error fetching calls from Firestore, trying backend fallback:", err);
+      try {
+        const res = await fetch(`${backendUrl}/api/calls`);
+        if (res.ok) {
+          const data = await res.json();
+          setCallsHistory(data);
+        }
+      } catch (err2) {
+        console.error("Fallback calls fetch failed:", err2);
+      }
     } finally {
       setLoadingCalls(false);
     }
@@ -144,32 +157,49 @@ export default function App() {
     e.stopPropagation();
     if (!confirm("Are you sure you want to delete this call record?")) return;
     try {
-      const res = await fetch(`${backendUrl}/api/calls/${callId}`, { method: 'DELETE' });
-      if (res.ok) {
-        toast("Call record deleted", "success");
-        fetchCallsHistory();
-      } else {
-        toast("Failed to delete call record", "error");
-      }
+      await deleteDoc(doc(db, 'calls', callId));
+      toast("Call record deleted", "success");
+      fetchCallsHistory();
     } catch (err) {
-      console.error("Error deleting call record:", err);
-      toast("Error deleting call", "error");
+      console.error("Error deleting call from Firestore, trying backend fallback:", err);
+      try {
+        const res = await fetch(`${backendUrl}/api/calls/${callId}`, { method: 'DELETE' });
+        if (res.ok) {
+          toast("Call record deleted", "success");
+          fetchCallsHistory();
+        } else {
+          toast("Failed to delete call record", "error");
+        }
+      } catch (err2) {
+        toast("Error deleting call", "error");
+      }
     }
   };
 
   const clearAllCallHistory = async () => {
     if (!confirm("Are you sure you want to clear all call history? This cannot be undone.")) return;
     try {
-      const res = await fetch(`${backendUrl}/api/calls`, { method: 'DELETE' });
-      if (res.ok) {
-        toast("Call history cleared", "success");
-        fetchCallsHistory();
-      } else {
-        toast("Failed to clear call history", "error");
-      }
+      const querySnapshot = await getDocs(collection(db, 'calls'));
+      const promises = [];
+      querySnapshot.forEach((doc) => {
+        promises.push(deleteDoc(doc.ref));
+      });
+      await Promise.all(promises);
+      toast("Call history cleared", "success");
+      fetchCallsHistory();
     } catch (err) {
-      console.error("Error clearing call history:", err);
-      toast("Error clearing history", "error");
+      console.error("Error clearing calls from Firestore, trying backend fallback:", err);
+      try {
+        const res = await fetch(`${backendUrl}/api/calls`, { method: 'DELETE' });
+        if (res.ok) {
+          toast("Call history cleared", "success");
+          fetchCallsHistory();
+        } else {
+          toast("Failed to clear call history", "error");
+        }
+      } catch (err2) {
+        toast("Error clearing history", "error");
+      }
     }
   };
 
@@ -422,6 +452,17 @@ export default function App() {
     setIsSimulatedCall(false);
     toast(`Initiating AI call to ${phone}...`, 'info');
 
+    const formattedPhone = phone.replace(/[^\d+]/g, '');
+    const callId = `CALL-${Math.floor(10000 + Math.random() * 90000)}`;
+    const createdAt = new Date().toISOString();
+
+    let leadName = "Interested Investor";
+    if (leadId) {
+      const l = leads.find(x => x.id === leadId);
+      if (l) leadName = l.name;
+    }
+
+    // Try triggering via backend URL first
     try {
       const res = await fetch(`${backendUrl}/api/calls/trigger`, {
         method: 'POST',
@@ -433,35 +474,334 @@ export default function App() {
           webhook_base_url: webhookBase
         })
       });
-      if (!res.ok) throw new Error("Failed to trigger call");
-      const data = await res.json();
-      setActiveCallId(data.call_id);
       
-      // If it is a real call, we inform the user.
-      if (data.mode === 'real') {
-        toast("Real voice call triggered successfully via Bland AI!", "success");
-        setIsSimulatedCall(false);
-        setCallStatus('in-progress');
-      } else {
-        if (data.error && data.error !== "No Bland AI key configured.") {
-          toast(`Bland AI API Error: ${data.error}. Running in Simulation Mode.`, "warning");
+      if (res.ok) {
+        const data = await res.json();
+        setActiveCallId(data.call_id);
+        
+        if (data.mode === 'real') {
+          toast("Real voice call triggered successfully via Bland AI!", "success");
+          setIsSimulatedCall(false);
+          setCallStatus('in-progress');
         } else {
-          toast("No Bland AI key configured. Running call in Simulation Mode.", "info");
+          if (data.error && data.error !== "No Bland AI key configured.") {
+            toast(`Bland AI API Error: ${data.error}. Running in Simulation Mode.`, "warning");
+          } else {
+            toast("No Bland AI key configured. Running call in Simulation Mode.", "info");
+          }
+          setIsSimulatedCall(true);
+          connectToCallStream(data.call_id);
         }
-        setIsSimulatedCall(true);
-        connectToCallStream(data.call_id);
+        return;
       }
-    } catch (err) {
-      console.error(err);
-      toast("Failed to trigger call: " + err.message, "error");
-      setCallStatus('idle');
+    } catch (backendErr) {
+      console.warn("Backend call trigger failed, falling back to pure client-side execution:", backendErr);
     }
+
+    // --- PURE CLIENT-SIDE FALLBACK (Spark plan friendly) ---
+    if (blandKey && !blandKey.startsWith("http")) {
+      toast("Triggering Bland AI call directly from browser...", "info");
+      setIsSimulatedCall(false);
+      try {
+        const prompt = `You are a friendly, professional AI outbound calling agent for Lohitha Dharma Projects Pvt. Ltd., a premium managed Red Sandalwood farmland developer. 
+Your goal is to connect with the lead, confirm their name, and qualify their purchase intent for farmland.
+Converse naturally and dynamically.
+Extract the following information during the call:
+1. Confirm their full name (which is ${leadName}).
+2. Ask for their email address.
+3. Ask what plot type size they are looking for (must be one of: 600 Sq. Yards, 1200 Sq. Yards, 2400 Sq. Yards, 0.25 Acre, 0.5 Acre, 1.0 Acre).
+4. Ask which farmland project/location they are interested in (must be one of: Kadapa Valley (Phase I & II), Tirupati Foothills, Chittoor Reserve, Nellore Greenlands, Rayalaseema Orchards).
+5. Ask for their estimated investment budget in Indian Rupees (INR).
+6. Ask what their timeline is for registering the plot (e.g., immediate, 1-3 months, 3-6 months, 6+ months).
+7. Ask if they have paid the advance booking token to reserve their plot.
+
+Start the call by asking for their name and greeting them. Once you have collected all info, thank them and end the call.`;
+
+        const blandPayload = {
+          phone_number: formattedPhone,
+          task: prompt,
+          first_sentence: "Hello, welcome to Lohitha Dharma Projects. May I know your name please?",
+          voice: "nat",
+          language: "en",
+          record: true,
+          metadata: {
+            lead_id: leadId,
+            call_id: callId
+          }
+        };
+
+        const response = await fetch("https://api.bland.ai/v1/calls", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "authorization": blandKey
+          },
+          body: JSON.stringify(blandPayload)
+        });
+
+        const resJson = await response.json();
+        if (response.ok) {
+          const blandCallId = resJson.call_id || resJson.id || callId;
+          setActiveCallId(blandCallId);
+          toast("Real voice call triggered directly via Bland AI!", "success");
+          setCallStatus('in-progress');
+
+          await setDoc(doc(db, 'calls', blandCallId), {
+            lead_id: leadId || null,
+            phone: formattedPhone,
+            status: "in-progress",
+            transcript: "",
+            recording_url: "",
+            duration: 0,
+            created_at: createdAt
+          });
+
+          startClientSideCallPolling(blandCallId, leadId, formattedPhone);
+          return;
+        } else {
+          throw new Error(resJson.message || resJson.error || `HTTP ${response.status}`);
+        }
+      } catch (err) {
+        console.error("Client-side Bland AI trigger failed:", err);
+        toast(`Bland AI Trigger failed: ${err.message}. Running in Simulation Mode.`, "warning");
+      }
+    }
+
+    // Run Simulated Call directly client-side
+    setIsSimulatedCall(true);
+    setActiveCallId(callId);
+    
+    try {
+      await setDoc(doc(db, 'calls', callId), {
+        lead_id: leadId || null,
+        phone: formattedPhone,
+        status: "ringing",
+        transcript: "",
+        recording_url: "",
+        duration: 0,
+        created_at: createdAt
+      });
+    } catch (e) {
+      console.error("Failed to save initial call to Firestore:", e);
+    }
+
+    runClientSideSimulation(callId, leadId, formattedPhone, leadName);
+  };
+
+  const runClientSideSimulation = (callId, leadId, phone, leadName) => {
+    const dialog = [
+      { speaker: "Agent", text: "Hello, welcome to Lohitha Dharma Projects. May I know your name please?" },
+      { speaker: "Customer", text: `Hello, my name is ${leadName}.` },
+      { speaker: "Agent", text: `Thank you Mr. ${leadName.split(' ')[0] || 'Investor'}. Which of our premium Red Sandalwood farmland projects are you interested in?` },
+      { speaker: "Customer", text: "I am looking for a farmland plot in Rayalaseema Orchards." },
+      { speaker: "Agent", text: "Rayalaseema Orchards is a wonderful choice for high-yield returns. What is your estimated investment budget?" },
+      { speaker: "Customer", text: "My budget is around 35 Lakhs." },
+      { speaker: "Agent", text: "Perfect. What is your registration timeline?" },
+      { speaker: "Customer", text: "I'm ready to proceed immediately, within this month." },
+      { speaker: "Agent", text: "Understood. Have you cleared the booking token advance?" },
+      { speaker: "Customer", text: "Yes, I paid a token advance of 2 Lakhs yesterday." },
+      { speaker: "Agent", text: `Excellent, we have verified that. I have updated your profile. Our senior site advisor will contact you at ${phone} to coordinate the registration map. Thank you for choosing Lohitha Dharma!` },
+      { speaker: "Customer", text: "Thank you, goodbye." }
+    ];
+
+    let currentTurn = 0;
+    setCallStatus('ringing');
+
+    simTimeoutRef.current = setTimeout(async () => {
+      setCallStatus('in-progress');
+      try {
+        await updateDoc(doc(db, 'calls', callId), { status: 'in-progress' });
+      } catch (e) {
+        console.error(e);
+      }
+
+      simIntervalRef.current = setInterval(async () => {
+        if (currentTurn < dialog.length) {
+          const turn = dialog[currentTurn];
+          setLiveTurns(prev => {
+            const exists = prev.some(t => t.speaker === turn.speaker && t.text === turn.text);
+            if (exists) return prev;
+            return [...prev, turn];
+          });
+          currentTurn++;
+        } else {
+          clearInterval(simIntervalRef.current);
+          setCallStatus('completed');
+          toast("AI outbound call completed!", "success");
+
+          const fullTranscript = dialog.map(t => `${t.speaker}: ${t.text}`).join('\n');
+          const parsed = parseOffline(fullTranscript);
+          const score = calcScore(parsed.timeline, parsed.token_paid, parsed.budget);
+          
+          const insights = [];
+          if (parsed.token_paid) {
+            insights.push("Verified booking token / registration down payment cleared.");
+          } else {
+            insights.push("Down payment status is pending. Direct registration action required.");
+          }
+          if (parsed.timeline.includes("Immediate")) {
+            insights.push("High urgency buyer planning immediate physical deed registration.");
+          } else {
+            insights.push("Urgency profile: planning land acquisition within this quarter.");
+          }
+          insights.push(`Targeting 0.25 Acre Farmland in premium cluster of ${parsed.location}.`);
+          insights.push(`Highly qualified investor profile (Score: ${score}%). High intent detected.`);
+
+          try {
+            await updateDoc(doc(db, 'calls', callId), {
+              status: 'completed',
+              transcript: fullTranscript,
+              recording_url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+              duration: dialog.length * 3
+            });
+
+            let finalLeadId = leadId;
+            if (finalLeadId) {
+              await updateDoc(doc(db, 'leads', finalLeadId), {
+                name: parsed.name,
+                location: parsed.location,
+                budget: parsed.budget,
+                timeline: parsed.timeline,
+                token_paid: parsed.token_paid,
+                ai_score: score,
+                status: score >= 80 ? 'Qualified' : score >= 60 ? 'Warm' : 'Cold',
+                insights: insights
+              });
+            } else {
+              finalLeadId = `LD-${Math.floor(1000 + Math.random() * 9000)}`;
+              await setDoc(doc(db, 'leads', finalLeadId), {
+                id: finalLeadId,
+                name: parsed.name,
+                email: 'investor@lohithadharma.com',
+                phone: phone,
+                plot_type: '0.25 Acre Farmland (100 Trees)',
+                location: parsed.location,
+                budget: parsed.budget,
+                ai_score: score,
+                status: score >= 80 ? 'Qualified' : score >= 60 ? 'Warm' : 'Cold',
+                created_at: new Date().toISOString(),
+                timeline: parsed.timeline,
+                token_paid: parsed.token_paid,
+                agent_assigned: 'Sarah Jenkins',
+                insights: insights
+              });
+              await updateDoc(doc(db, 'calls', callId), { lead_id: finalLeadId });
+            }
+          } catch (dbErr) {
+            console.error("Firestore update failed during simulation complete:", dbErr);
+          }
+
+          fetchCallsHistory();
+        }
+      }, 2500);
+    }, 3000);
+  };
+
+  const startClientSideCallPolling = (callId, leadId, phone) => {
+    let attempts = 0;
+    const maxAttempts = 60; 
+    pollIntervalRef.current = setInterval(async () => {
+      attempts++;
+      if (attempts > maxAttempts) {
+        clearInterval(pollIntervalRef.current);
+        setCallStatus('idle');
+        toast("Call polling timed out. Call might still be active.", "warning");
+        return;
+      }
+
+      try {
+        const response = await fetch(`https://api.bland.ai/v1/calls/${callId}`, {
+          method: "GET",
+          headers: {
+            "authorization": blandKey
+          }
+        });
+
+        if (response.ok) {
+          const resJson = await response.json();
+          if (resJson.completed || resJson.status === 'completed') {
+            clearInterval(pollIntervalRef.current);
+            setCallStatus('completed');
+            toast("AI outbound call completed!", "success");
+
+            const transcriptText = resJson.transcripts || resJson.transcript || "";
+            const recordingUrl = resJson.recording_url || resJson.recording || "";
+            const duration = resJson.duration || 0;
+
+            const parsed = parseOffline(transcriptText);
+            const score = calcScore(parsed.timeline, parsed.token_paid, parsed.budget);
+            
+            const insights = [];
+            if (parsed.token_paid) {
+              insights.push("Verified booking token / registration down payment cleared.");
+            } else {
+              insights.push("Down payment status is pending. Direct registration action required.");
+            }
+            if (parsed.timeline.includes("Immediate")) {
+              insights.push("High urgency buyer planning immediate physical deed registration.");
+            } else {
+              insights.push("Urgency profile: planning land acquisition within this quarter.");
+            }
+            insights.push(`Targeting 0.25 Acre Farmland in premium cluster of ${parsed.location}.`);
+            insights.push(`Highly qualified investor profile (Score: ${score}%). High intent detected.`);
+
+            await updateDoc(doc(db, 'calls', callId), {
+              status: 'completed',
+              transcript: transcriptText,
+              recording_url: recordingUrl,
+              duration: duration
+            });
+
+            let finalLeadId = leadId;
+            if (finalLeadId) {
+              await updateDoc(doc(db, 'leads', finalLeadId), {
+                name: parsed.name,
+                location: parsed.location,
+                budget: parsed.budget,
+                timeline: parsed.timeline,
+                token_paid: parsed.token_paid,
+                ai_score: score,
+                status: score >= 80 ? 'Qualified' : score >= 60 ? 'Warm' : 'Cold',
+                insights: insights
+              });
+            } else {
+              finalLeadId = `LD-${Math.floor(1000 + Math.random() * 9000)}`;
+              await setDoc(doc(db, 'leads', finalLeadId), {
+                id: finalLeadId,
+                name: parsed.name,
+                email: 'investor@lohithadharma.com',
+                phone: phone,
+                plot_type: '0.25 Acre Farmland (100 Trees)',
+                location: parsed.location,
+                budget: parsed.budget,
+                ai_score: score,
+                status: score >= 80 ? 'Qualified' : score >= 60 ? 'Warm' : 'Cold',
+                created_at: new Date().toISOString(),
+                timeline: parsed.timeline,
+                token_paid: parsed.token_paid,
+                agent_assigned: 'Sarah Jenkins',
+                insights: insights
+              });
+              await updateDoc(doc(db, 'calls', callId), { lead_id: finalLeadId });
+            }
+
+            fetchCallsHistory();
+          }
+        }
+      } catch (err) {
+        console.error("Error polling Bland AI call status:", err);
+      }
+    }, 5000);
   };
 
   const stopActiveCall = () => {
     if (sseRef.current) {
       sseRef.current.close();
     }
+    if (simTimeoutRef.current) clearTimeout(simTimeoutRef.current);
+    if (simIntervalRef.current) clearInterval(simIntervalRef.current);
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+
     setCallStatus('idle');
     setActiveCallId(null);
     setLiveTurns([]);
@@ -479,6 +819,9 @@ export default function App() {
   useEffect(() => {
     return () => {
       if (sseRef.current) sseRef.current.close();
+      if (simTimeoutRef.current) clearTimeout(simTimeoutRef.current);
+      if (simIntervalRef.current) clearInterval(simIntervalRef.current);
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, []);
 
