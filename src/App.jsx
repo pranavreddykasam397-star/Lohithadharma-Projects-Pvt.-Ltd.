@@ -108,7 +108,7 @@ export default function App() {
   const [loadingCalls, setLoadingCalls] = useState(false);
   const [expandedCallId, setExpandedCallId] = useState(null);
   const [isCallHistoryCollapsed, setIsCallHistoryCollapsed] = useState(false);
-  const [blandKey, setBlandKey] = useState(() => localStorage.getItem('bland_api_key') || '');
+  const [blandKey, setBlandKey] = useState(() => localStorage.getItem('bland_api_key') || 'org_5c8380c411a751734785cad849f3945d1622694a3a038628c95acbd311c15ef1df11b7af1f1d2cf5927f69');
   const [webhookBase, setWebhookBase] = useState(() => localStorage.getItem('webhook_base_url') || '');
   const [backendUrl, setBackendUrl] = useState(() => localStorage.getItem('backend_api_url') || DEFAULT_API);
   const [emailjsServiceId, setEmailjsServiceId] = useState(() => localStorage.getItem('emailjs_service_id') || 'service_ornoirw');
