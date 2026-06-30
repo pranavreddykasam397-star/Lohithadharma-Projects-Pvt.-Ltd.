@@ -700,6 +700,9 @@ Start the call by asking for their name and greeting them. Once you have collect
   const startClientSideCallPolling = (callId, leadId, phone) => {
     let attempts = 0;
     const maxAttempts = 60; 
+    let completionAttempts = 0;
+    const maxCompletionAttempts = 6; // Check up to 30 seconds after completion for recording URL
+    
     pollIntervalRef.current = setInterval(async () => {
       attempts++;
       if (attempts > maxAttempts) {
@@ -719,13 +722,31 @@ Start the call by asking for their name and greeting them. Once you have collect
 
         if (response.ok) {
           const resJson = await response.json();
-          if (resJson.completed || resJson.status === 'completed') {
+          const isCompleted = resJson.completed || resJson.status === 'completed';
+          
+          if (isCompleted) {
+            const recordingUrl = resJson.recording_url || resJson.recording || "";
+            
+            // If completed, but recording_url is not ready yet, keep checking for a few attempts
+            if (!recordingUrl && completionAttempts < maxCompletionAttempts) {
+              completionAttempts++;
+              console.log(`Call completed, but waiting for recording URL... Attempt ${completionAttempts}/${maxCompletionAttempts}`);
+              
+              setCallStatus('completed');
+              await updateDoc(doc(db, 'calls', callId), {
+                status: 'completed',
+                transcript: resJson.transcripts || resJson.transcript || ""
+              });
+              return; // Keep polling for recording URL
+            }
+            
+            // Once we have the recording_url, or we exhausted completion attempts, stop polling
             clearInterval(pollIntervalRef.current);
             setCallStatus('completed');
             toast("AI outbound call completed!", "success");
 
             const transcriptText = resJson.transcripts || resJson.transcript || "";
-            const recordingUrl = resJson.recording_url || resJson.recording || "";
+            const finalRecordingUrl = recordingUrl || "";
             const duration = resJson.duration || 0;
 
             const parsed = parseOffline(transcriptText);
@@ -748,7 +769,7 @@ Start the call by asking for their name and greeting them. Once you have collect
             await updateDoc(doc(db, 'calls', callId), {
               status: 'completed',
               transcript: transcriptText,
-              recording_url: recordingUrl,
+              recording_url: finalRecordingUrl,
               duration: duration
             });
 
