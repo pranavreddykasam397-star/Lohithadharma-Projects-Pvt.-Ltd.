@@ -530,7 +530,7 @@ Start the call by asking for their name and greeting them. Once you have collect
           }
         };
 
-        const response = await fetch("https://api.bland.ai/v1/calls", {
+        const response = await fetch("https://corsproxy.io/?https://api.bland.ai/v1/calls", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -713,7 +713,7 @@ Start the call by asking for their name and greeting them. Once you have collect
       }
 
       try {
-        const response = await fetch(`https://api.bland.ai/v1/calls/${callId}`, {
+        const response = await fetch(`https://corsproxy.io/?https://api.bland.ai/v1/calls/${callId}`, {
           method: "GET",
           headers: {
             "authorization": blandKey
